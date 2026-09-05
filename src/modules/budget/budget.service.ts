@@ -194,7 +194,7 @@ export class BudgetService implements OnModuleInit, OnModuleDestroy {
             );
 
         return await this.db.$transaction(async (tx) => {
-            const result = await this.db.balance.update({
+            const result = await tx.balance.update({
                 where: { userId, version },
                 data: {
                     locked: balance?.locked - transaction.amount,

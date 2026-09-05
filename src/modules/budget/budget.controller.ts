@@ -19,7 +19,7 @@ import { DoneTrasactionRequestDto } from './dto/done-transaction-request.dto';
 import { CancelReserveRequestDto } from './dto/cancel-reserve-request.dto';
 import { LedgerResponseDto } from './dto/ledger-response.dto';
 import { Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { filter, map } from 'rxjs/operators';
 
 @Controller('budget')
 export class BudgetController {
@@ -86,9 +86,10 @@ export class BudgetController {
     @Header('Cache-Control', 'no-cache')
     @Header('Connection', 'keep-alive')
     @Sse('/balance/stream')
-    public async balanceStream() {
-        return this.budgetService
-            .getNotificationStream()
-            .pipe(map((payload) => ({ data: payload }) as MessageEvent));
+    public async balanceStream(@User() user: any) {
+        return this.budgetService.getNotificationStream().pipe(
+            map((payload) => ({ data: payload }) as MessageEvent),
+            filter((item) => item.data.user_id === user.userId),
+        );
     }
 }

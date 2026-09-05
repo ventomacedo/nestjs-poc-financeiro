@@ -6,8 +6,8 @@ import {
     Injectable,
     NestInterceptor,
 } from '@nestjs/common';
-import { catchError, from, Observable, switchMap, tap, throwError } from 'rxjs';
-import { RedisService } from 'src/shared/redis/redis.service';
+import { catchError, from, switchMap, tap, throwError } from 'rxjs';
+import { RedisService } from '../../shared/redis/redis.service';
 @Injectable()
 export class IdempotencyInterceptor implements NestInterceptor {
     constructor(private redis: RedisService) {}
