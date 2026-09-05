@@ -1,13 +1,12 @@
 import { register } from 'tsconfig-paths';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const { compilerOptions } = JSON.parse(
+    readFileSync(join(__dirname, '../../tsconfig.json'), 'utf-8'),
+);
 
 register({
     baseUrl: __dirname,
-    paths: {
-        '@auth': ['modules/auth/index'],
-        '@banks': ['modules/banks/index'],
-        '@clock': ['modules/clock/index'],
-        '@database': ['database/index'],
-        '@shared/decorators': ['shared/decorators/index'],
-        '@prisma': ['../generated/prisma/client'],
-    },
+    paths: compilerOptions.paths,
 });

@@ -1,0 +1,19 @@
+enum SessionType {
+    PRE_AUTH
+    FULL_AUTH
+}
+
+model Session {
+    id        String      @id @default(uuid(7))
+    userId    String      @map("user_id") @db.Uuid
+    token     String      @map("token") @unique
+    createdAt DateTime    @map("created_at") @default(now())
+    revokedAt DateTime?    @map("revoked_at")
+    expiresAt DateTime   @map("expires_at")
+    type      SessionType @default(PRE_AUTH)
+
+    user User @relation(fields: [userId], references: [id])
+
+    @@index([userId])
+    @@map("session")
+}

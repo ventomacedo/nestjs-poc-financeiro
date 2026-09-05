@@ -22,6 +22,7 @@
         "migration:run": "drizzle-kit migrate"
     },
     "dependencies": {
+        "@date-fns/tz": "^1.5.0",
         "@nestjs/axios": "^4.0.1",
         "@nestjs/common": "^11.0.1",
         "@nestjs/config": "^4.0.4",
@@ -37,6 +38,7 @@
         "bcrypt": "^6.0.0",
         "class-transformer": "^0.5.1",
         "class-validator": "^0.15.1",
+        "date-fns": "^4.4.0",
         "ioredis": "^6.0.0",
         "otplib": "^13.5.0",
         "passport": "^0.7.0",
@@ -76,34 +78,5 @@
         "ts-node": "^10.9.2",
         "typescript": "^5.7.3",
         "typescript-eslint": "^8.20.0"
-    },
-    "jest": {
-        "moduleFileExtensions": [
-            "js",
-            "json",
-            "ts"
-        ],
-        "rootDir": "src",
-        "testRegex": ".*\\.spec\\.ts$",
-        "moduleNameMapper": {
-            "^@auth$": "<rootDir>/modules/auth/index.ts",
-            "^@banks$": "<rootDir>/modules/banks/index.ts",
-            "^@clock$": "<rootDir>/modules/clock/index.ts",
-            "^@database$": "<rootDir>/database/index.ts",
-            "^@shared/decorators$": "<rootDir>/shared/decorators/index.ts",
-            "^@prisma$": "<rootDir>/../generated/prisma/client.ts",
-            "^(\\.{1,2}/.*)\\.js$": "$1"
-        },
-        "transform": {
-            "^.+\\.(t|j)s$": "ts-jest"
-        },
-        "transformIgnorePatterns": [
-            "node_modules/(?!(@nestjs/passport|otplib|@otplib|@scure|@noble)/)"
-        ],
-        "collectCoverageFrom": [
-            "**/*.(t|j)s"
-        ],
-        "coverageDirectory": "../coverage",
-        "testEnvironment": "node"
     }
 }

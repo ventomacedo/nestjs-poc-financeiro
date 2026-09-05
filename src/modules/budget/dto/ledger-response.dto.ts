@@ -1,4 +1,4 @@
-import { Type } from '@prisma';
+import { LedgerType } from '@prisma';
 import { Transform } from 'class-transformer';
 
 const typeMapping = {
@@ -11,7 +11,7 @@ const typeMapping = {
 export class LedgerResponseDto {
     id!: string;
     userId!: string;
-    type!: Type;
+    type!: LedgerType;
     orderId!: string;
     reserveId!: string;
     amount!: number;

@@ -2,7 +2,7 @@ import { BudgetService } from '../budget.service';
 import { PrismaService } from '@database';
 import { DeepMockProxy, mockDeep } from 'jest-mock-extended';
 import { Test, TestingModule } from '@nestjs/testing';
-import { Type } from '@prisma';
+import { LedgerType } from '@prisma';
 
 describe('BudgetService', () => {
     let service: BudgetService;
@@ -50,7 +50,7 @@ describe('BudgetService', () => {
             {
                 id: '01a06f66-16df-728f-a840-b5fedd5ecbee',
                 userId: '01a025b8-e5f5-75c4-acd8-76bf78a25ee2',
-                type: 'REFUNDED' as Type,
+                type: 'REFUNDED' as LedgerType,
                 orderId: 'ORDER-0002',
                 reserveId: '01a06a00-167b-77a2-8e27-af2611ee3acf',
                 amount: 1500000,
@@ -60,7 +60,7 @@ describe('BudgetService', () => {
             {
                 id: '01a06f65-5426-7098-8375-bac6e79aed16',
                 userId: '01a025b8-e5f5-75c4-acd8-76bf78a25ee2',
-                type: 'RESERVED' as Type,
+                type: 'RESERVED' as LedgerType,
                 orderId: 'ORDER-0002',
                 reserveId: '01a06a00-167b-77a2-8e27-af2611ee3acf',
                 amount: 1500000,

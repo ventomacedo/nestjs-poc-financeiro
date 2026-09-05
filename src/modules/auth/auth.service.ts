@@ -15,6 +15,8 @@ import { TwoFactorAuthSyncResponse } from './dto/two-factor-auth-sync-response.d
 import { TwoFactorAuthResponse } from './dto/two-factor-auth-response.dto';
 import { PrismaService } from '@database';
 import type { User } from '@prisma';
+import { expTimeToDabase } from '@shared/utils';
+
 @Injectable()
 export class AuthService {
     private readonly otp: OTP;
@@ -26,7 +28,10 @@ export class AuthService {
         this.otp = new OTP({ strategy: 'totp' });
     }
 
-    async login(_email: string, _password: string): Promise<LoginResponseDto> {
+    public async login(
+        _email: string,
+        _password: string,
+    ): Promise<LoginResponseDto> {
         try {
             const INVALID_MESSAGE = 'Usuário ou senha inválidos.';
             const user = await this.db.user.findUnique({
@@ -53,7 +58,16 @@ export class AuthService {
         }
     }
 
-    async generateTwoFactorSecret(
+    public async logout(session: string) {
+        try {
+            const [_, token] = session?.split(' ');
+            return await this.remokeSession(token);
+        } catch (error) {
+            throw new NotFoundException('Sessão não encontrada.');
+        }
+    }
+
+    public async generateTwoFactorSecret(
         userId: string,
     ): Promise<TwoFactorAuthSyncResponse> {
         const user = await this.findUserById(userId);
@@ -80,7 +94,7 @@ export class AuthService {
         };
     }
 
-    async validateTwoFactorAuth(
+    public async validateTwoFactorAuth(
         userId: string,
         code: string,
     ): Promise<TwoFactorAuthResponse> {
@@ -99,9 +113,9 @@ export class AuthService {
         if (!valid)
             throw new UnauthorizedException('Código de authenticação inválido');
 
-        return {
-            accessToken: await this.generateAuthToken(user.id),
-        };
+        const accessToken = await this.generateAuthToken(user.id);
+        await this.persistSe2ssion(accessToken);
+        return { accessToken };
     }
 
     private async updateUserSecret(
@@ -147,5 +161,24 @@ export class AuthService {
             { sub: userId, type: 'FULL_AUTH' },
             { expiresIn: '8h' },
         );
+    }
+
+    private async persistSe2ssion(session: string) {
+        const { sub, exp, type } = this.jwtService.decode(session);
+        await this.db.session.create({
+            data: {
+                userId: sub,
+                token: session,
+                type: type,
+                expiresAt: expTimeToDabase(exp),
+            },
+        });
+    }
+
+    private async remokeSession(session: string) {
+        await this.db.session.update({
+            where: { token: session },
+            data: { revokedAt: new Date() },
+        });
     }
 }

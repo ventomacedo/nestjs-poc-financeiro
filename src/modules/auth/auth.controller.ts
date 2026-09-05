@@ -1,4 +1,12 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import {
+    Body,
+    Controller,
+    Post,
+    Req,
+    UseGuards,
+    Headers,
+    Get,
+} from '@nestjs/common';
 import { ApiOperation } from '@nestjs/swagger';
 
 import { AuthService } from './auth.service';
@@ -8,6 +16,7 @@ import { TwoFactorAuthRequest } from './dto/two-factor-auth-request.dto';
 import { TwoFactorAuthSyncResponse } from './dto/two-factor-auth-sync-response.dto';
 import { twoFactorAuthGuard } from './guards/two-factor-auth.guard';
 import { LoginResponseDto } from './dto/login-response.dto';
+import { JwthGuard } from './guards/jwt.guard';
 
 type PreAuthRequest = Request & { user: { userId: string } };
 
@@ -17,8 +26,19 @@ export class AuthController {
 
     @ApiOperation({ summary: 'Faz o login na plataforma' })
     @Post('signin')
-    async signin(@Body() body: SigninRequestDto): Promise<LoginResponseDto> {
+    public async signin(
+        @Body() body: SigninRequestDto,
+    ): Promise<LoginResponseDto> {
         return await this.authService.login(body.email, body.password);
+    }
+
+    @UseGuards(JwthGuard)
+    @ApiOperation({ summary: 'Faz o logout na plataforma' })
+    @Get('signout')
+    public async signOut(
+        @Headers('authorization') authorization: string,
+    ): Promise<any> {
+        return await this.authService.logout(authorization);
     }
 
     @UseGuards(twoFactorAuthGuard)
