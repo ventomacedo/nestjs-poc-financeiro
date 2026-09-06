@@ -3,7 +3,7 @@ import crypto from 'crypto';
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 32;
 const TAG_LENGTH = 16;
-//$2b$12$Aco2FvnJ7dYM.U8ElWj42OiXM/s0ppK.q7prbLZsEslc8CPbl4YtC
+
 export const encrypt = (input: string) => {
     const key = String(process.env.TWO_FACTOR_SECRET_KEY);
     const iv = crypto.randomBytes(IV_LENGTH);

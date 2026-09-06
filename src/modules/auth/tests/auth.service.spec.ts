@@ -4,13 +4,23 @@ import {
     UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcrypt';
+import * as argon2 from 'argon2';
 import * as QRCode from 'qrcode';
 
 import { AuthService } from '../auth.service';
 
-jest.mock('bcrypt', () => ({
-    compare: jest.fn(),
+jest.mock('argon2', () => ({
+    argon2id: 'argon2id',
+    hash: jest.fn(),
+    verify: jest.fn(),
+}));
+
+jest.mock('@shared/utils', () => ({
+    expTimeToDabase: jest.fn((exp: number) => new Date(exp * 1000)),
+    encrypt: jest.fn((value: string) => `encrypted(${value})`),
+    decrypt: jest.fn((value: string) =>
+        typeof value === 'string' ? value.replace(/^encrypted\((.*)\)$/, '$1') : value,
+    ),
 }));
 
 jest.mock('qrcode', () => ({
@@ -35,11 +45,16 @@ describe('AuthService', () => {
             findFirst: jest.Mock;
             update: jest.Mock;
         };
+        session: {
+            create: jest.Mock;
+            update: jest.Mock;
+        };
     };
     let jwtService: {
         sign: jest.Mock;
+        decode: jest.Mock;
     };
-    const compareMock = bcrypt.compare as jest.Mock;
+    const verifyMock = argon2.verify as jest.Mock;
     const toDataURLMock = QRCode.toDataURL as jest.Mock;
 
     const user = {
@@ -54,7 +69,8 @@ describe('AuthService', () => {
     };
 
     beforeEach(() => {
-        compareMock.mockReset();
+        process.env.PEPPER_SECRET = 'test-pepper';
+        verifyMock.mockReset();
         toDataURLMock.mockReset();
         otpInstance.generateSecret.mockReset();
         otpInstance.generateURI.mockReset();
@@ -65,9 +81,16 @@ describe('AuthService', () => {
                 findFirst: jest.fn(),
                 update: jest.fn(),
             },
+            session: {
+                create: jest.fn().mockResolvedValue({}),
+                update: jest.fn().mockResolvedValue({}),
+            },
         };
         jwtService = {
             sign: jest.fn(),
+            decode: jest
+                .fn()
+                .mockReturnValue({ sub: user.id, exp: 1735689600, type: 'FULL_AUTH' }),
         };
         authService = new AuthService(
             db as never,
@@ -85,7 +108,7 @@ describe('AuthService', () => {
                 ...user,
                 isFirstAccess: true,
             });
-            compareMock.mockResolvedValue(true);
+            verifyMock.mockResolvedValue(true);
             jwtService.sign.mockReturnValue('pre-auth-token');
 
             const result = await authService.login(
@@ -97,9 +120,9 @@ describe('AuthService', () => {
                 authChallenge: 'MFA_SYNC',
                 twoFactorAuthToken: 'pre-auth-token',
             });
-            expect(compareMock).toHaveBeenCalledWith(
-                'plain-password',
+            expect(verifyMock).toHaveBeenCalledWith(
                 user.password,
+                `plain-password${process.env.PEPPER_SECRET}`,
             );
             expect(jwtService.sign).toHaveBeenCalledWith(
                 { sub: user.id, type: 'PRE_AUTH' },
@@ -115,7 +138,7 @@ describe('AuthService', () => {
                 ...user,
                 isFirstAccess: false,
             });
-            compareMock.mockResolvedValue(true);
+            verifyMock.mockResolvedValue(true);
             jwtService.sign.mockReturnValue('pre-auth-token');
 
             const result = await authService.login(
@@ -143,13 +166,13 @@ describe('AuthService', () => {
             await expect(loginPromise).rejects.toThrow(
                 'Usuário ou senha inválidos.',
             );
-            expect(compareMock).not.toHaveBeenCalled();
+            expect(verifyMock).not.toHaveBeenCalled();
             expect(jwtService.sign).not.toHaveBeenCalled();
         });
 
         it('throws UnauthorizedException when the password is invalid', async () => {
             db.user.findUnique.mockResolvedValue(user);
-            compareMock.mockResolvedValue(false);
+            verifyMock.mockResolvedValue(false);
 
             await expect(
                 authService.login(user.email, 'wrong-password'),
@@ -189,7 +212,10 @@ describe('AuthService', () => {
             });
             expect(db.user.update).toHaveBeenCalledWith({
                 where: { id: user.id },
-                data: { twoFactorSecret: 'new-secret', isFirstAccess: false },
+                data: {
+                    twoFactorSecret: 'encrypted(new-secret)',
+                    isFirstAccess: false,
+                },
             });
             expect(toDataURLMock).toHaveBeenCalledWith(
                 'otpauth://totp/App:user@example.com?secret=new-secret',
