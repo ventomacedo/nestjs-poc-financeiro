@@ -1,62 +1,32 @@
-import { OnModuleDestroy } from '@nestjs/common';
 import { PrismaService } from '@database';
 import {
     BadRequestException,
     ConflictException,
     Injectable,
+    MessageEvent,
     NotFoundException,
-    OnModuleInit,
     UnprocessableEntityException,
 } from '@nestjs/common';
 
 import { Balance, Ledger } from '@prisma';
 import { ReserveBalanceRequestDto } from './dto/reserve-balance-request.dto';
-import { UpdateLedger } from './types';
+import { NotificationData, UpdateLedger } from './types';
 import { CancelReserveRequestDto } from './dto/cancel-reserve-request.dto';
-import { Client, Notification } from 'pg';
-import { Observable, Subject } from 'rxjs';
+
+import {
+    catchError,
+    from,
+    timer,
+    of,
+    switchMap,
+    Observable,
+    distinctUntilChanged,
+} from 'rxjs';
 
 const NOTIFICATION = 'balance_notification';
 @Injectable()
-export class BudgetService implements OnModuleInit, OnModuleDestroy {
-    private notifyConnection!: Client;
-    private balanceUpdates$ = new Subject<any>();
-
+export class BudgetService {
     constructor(private readonly db: PrismaService) {}
-
-    public async onModuleInit() {
-        try {
-            const connectionString = process.env.DATABASE_URL;
-            if (!connectionString)
-                throw new Error(
-                    'String de conexão com o banco de dados de notificação não encontrada.',
-                );
-
-            this.notifyConnection = new Client({ connectionString });
-
-            await this.notifyConnection.connect();
-            this.notifyConnection.query('LISTEN balance_updates');
-
-            this.notifyConnection.on(
-                'notification',
-                (message: Notification) => {
-                    if (
-                        message.channel === 'balance_updates' &&
-                        message.payload
-                    ) {
-                        const data = JSON.parse(message.payload);
-                        this.balanceUpdates$.next(data);
-                    }
-                },
-            );
-        } catch (error) {
-            throw error;
-        }
-    }
-
-    public async onModuleDestroy() {
-        !!this.notifyConnection && (await this.notifyConnection.end());
-    }
 
     public async getBalance(userId: string): Promise<Balance | null> {
         try {
@@ -78,8 +48,8 @@ export class BudgetService implements OnModuleInit, OnModuleDestroy {
         });
     }
 
-    public getNotificationStream(): Observable<any> {
-        return this.balanceUpdates$.asObservable();
+    public getNotificationStream(userId: string) {
+        return this.pollerLedger(userId);
     }
 
     public async reserveBalance(
@@ -93,7 +63,7 @@ export class BudgetService implements OnModuleInit, OnModuleDestroy {
             if (!balance?.version)
                 throw new NotFoundException('Saldo não encontrado');
 
-            if (balance?.available <= 0)
+            if (balance?.available < amount || balance?.available <= 0)
                 throw new UnprocessableEntityException('Saldo insuficiente');
 
             return await this.db.$transaction(async (tx) => {
@@ -249,5 +219,44 @@ export class BudgetService implements OnModuleInit, OnModuleDestroy {
         } catch (error) {
             throw error;
         }
+    }
+
+    private pollerLedger(userId: string) {
+        return timer(0, 5000).pipe(
+            switchMap(() =>
+                from(
+                    this.db.ledger.findMany({
+                        where: { userId, publishedAt: null },
+                    }),
+                ).pipe(
+                    switchMap(async (result) => {
+                        if (result.length)
+                            await this.db.ledger.updateMany({
+                                where: {
+                                    id: { in: result.map((item) => item.id) },
+                                },
+                                data: { publishedAt: new Date() },
+                            });
+
+                        const balance = await this.db.balance.findUnique({
+                            where: { userId },
+                        });
+
+                        return { data: { ...balance } };
+                    }),
+                    catchError((error) => {
+                        console.error(error);
+                        return of({ data: { error: 'Banco indisponível.' } });
+                    }),
+                ),
+            ),
+            distinctUntilChanged(
+                (prev, next) => prev === next,
+                (item) =>
+                    'version' in item.data
+                        ? String(item.data.version)
+                        : item.data,
+            ),
+        );
     }
 }

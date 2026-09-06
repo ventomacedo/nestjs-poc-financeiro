@@ -14,7 +14,8 @@ O projeto ainda está em construção. O código, as escolhas técnicas e a docu
 - Trabalhar com validação de dados recebidos pela API.
 - Integrar uma aplicação NestJS com PostgreSQL.
 - Usar Prisma ORM (schema, migrations e Prisma Client) para acesso a dados.
-- Estudar idempotência em operações financeiras (módulo `budget`, com `Ledger`/`Balance` versionado e lock de idempotência via Redis) e experimentar `LISTEN`/`NOTIFY` do Postgres com SSE — em andamento.
+- Estudar idempotência em operações financeiras (módulo `budget`, com `Ledger`/`Balance` versionado e lock de idempotência via Redis) e experimentar entrega de eventos via SSE com padrão outbox (poll em `Ledger` + cursor `publishedAt`) — em andamento.
+- Implementar sessão/logout com revogação de token (tabela `Session`, vinculada ao usuário e ao JWT emitido).
 - Recuperar familiaridade com testes, configuração e execução de aplicações backend.
 
 ## Tecnologias
@@ -28,6 +29,7 @@ O projeto ainda está em construção. O código, as escolhas técnicas e a docu
 - Prisma ORM (`@prisma/client`, driver adapter `@prisma/adapter-pg`)
 - JSON Web Token (JWT) e Passport
 - Autenticação de dois fatores (TOTP) com `otplib` e QR Code (`qrcode`)
+- Manipulação de datas com `date-fns` e `@date-fns/tz`
 - Swagger para documentação da API
 - Jest e Supertest
 
@@ -91,14 +93,17 @@ prisma/
 │   ├── user.prisma
 │   ├── bank.prisma
 │   ├── ledger.prisma
-│   └── balance.prisma
+│   ├── balance.prisma
+│   └── session.prisma
 ├── migrations/
 ├── seeds/
 │   └── banks.seed.sql   # principais instituições financeiras do Brasil
 └── seed.ts   # runner do seed (`npx prisma db seed`)
+
+jest.config.ts
 ```
 
-Cada módulo de domínio expõe só o que os outros precisam através do `index.ts` (barrel). Imports entre módulos usam aliases (`@auth`, `@banks`, `@clock`, `@database`, `@shared/decorators`, `@prisma`) configurados em `tsconfig.json`, no `moduleNameMapper` do Jest e em `src/register-paths.ts` (resolução em runtime pro build compilado).
+Cada módulo de domínio expõe só o que os outros precisam através do `index.ts` (barrel). Imports entre módulos usam aliases (`@auth`, `@banks`, `@clock`, `@database`, `@shared/decorators`, `@shared/utils`, `@prisma`) — a lista fica só em `tsconfig.json` (`baseUrl` + `paths`); tanto `jest.config.ts` (via `pathsToModuleNameMapper` do `ts-jest`) quanto `src/register-paths.ts` (resolução em runtime pro build compilado, via `tsconfig-paths`) leem esse mesmo arquivo em vez de duplicar a lista.
 
 ## Pré-requisitos
 
@@ -176,7 +181,10 @@ As rotas de autenticação usam o prefixo `/api/v1/auth`. O fluxo de login é fe
 | ------ | ---------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `POST` | `/auth/signin`                           | —                           | Login com e-mail e senha. Retorna `twoFactorAuthToken` e o próximo passo (`MFA_SYNC` ou `MFA_VALIDATE`) |
 | `POST` | `/auth/sync-app-authenticator`           | Bearer `twoFactorAuthToken` | Gera segredo e QR Code para o usuário sincronizar o app authenticator (primeiro acesso)                 |
-| `POST` | `/auth/verify-two-factor-authentication` | Bearer `twoFactorAuthToken` | Valida o código TOTP e retorna o `accessToken` final                                                    |
+| `POST` | `/auth/verify-two-factor-authentication` | Bearer `twoFactorAuthToken` | Valida o código TOTP, persiste a sessão (tabela `Session`) e retorna o `accessToken` final               |
+| `GET`  | `/auth/signout`                           | Bearer `accessToken`        | Revoga a sessão do `accessToken` enviado (marca `revokedAt` na tabela `Session`)                        |
+
+`accessToken` (tipo `FULL_AUTH`) é validado contra a tabela `Session` a cada requisição (`JwtStrategy`), não só pela assinatura do JWT — isso permite revogar acesso antes da expiração natural do token via `/auth/signout`. `twoFactorAuthToken` (tipo `PRE_AUTH`) não passa por essa checagem, só pela assinatura/expiração do próprio JWT (TTL curto de 5 minutos).
 
 As rotas de instituições financeiras usam o prefixo `/api/v1/banks` e exigem `accessToken` (Bearer) obtido no fluxo de 2FA.
 
@@ -203,7 +211,7 @@ O módulo `budget` (prefixo `/api/v1/budget`) é o experimento de idempotência 
 | `POST` | `/budget/reserve`        | Bearer `accessToken` | Reserva um valor do saldo disponível (bloqueia), idempotente por `transactionId`                                                                                                                                                                                                                                                                                                                        |
 | `POST` | `/budget/cancel`         | Bearer `accessToken` | Cancela uma reserva, devolve o valor ao saldo disponível                                                                                                                                                                                                                                                                                                                                                |
 | `POST` | `/budget/confirm`        | Bearer `accessToken` | Confirma (efetiva) uma reserva como saque                                                                                                                                                                                                                                                                                                                                                               |
-| `GET`  | `/budget/balance/stream` | Bearer `accessToken` | SSE que emite quando a tabela `balance` muda, via trigger Postgres (`pg_notify`) + `LISTEN` numa conexão dedicada. **Endpoint de teste, não é um padrão válido pra sistema financeiro real** — serve só pra validar SSE + `NOTIFY`/`LISTEN` na prática; um fluxo real de saldo com idempotência não deveria expor o dado por push não confiável (sem garantia de entrega/replay), só pelas rotas acima. |
+| `GET`  | `/budget/balance/stream` | Bearer `accessToken` | SSE com padrão outbox: faz poll em `Ledger` a cada 5s filtrando por `userId` e `publishedAt: null`, marca as linhas encontradas como publicadas e emite o `Balance` atual daquele usuário. `Ledger` funciona como fila (cursor `publishedAt`, at-least-once); `distinctUntilChanged` evita reemitir o mesmo estado. |
 
 A documentação interativa (Swagger) fica disponível em `/docs` com a aplicação em execução.
 
@@ -211,7 +219,7 @@ Esses fluxos ainda fazem parte do exercício e serão refinados conforme o proje
 
 ## Prisma
 
-O schema fica dividido por domínio em `prisma/schema/` (`user.prisma`, `bank.prisma`, `ledger.prisma`, `balance.prisma`), mais `schema.prisma` com o bloco `generator`/`datasource` — o Prisma CLI funde todos os arquivos da pasta automaticamente. Configuração de conexão e caminho do schema fica em `prisma7.config.ts`.
+O schema fica dividido por domínio em `prisma/schema/` (`user.prisma`, `bank.prisma`, `ledger.prisma`, `balance.prisma`, `session.prisma`), mais `schema.prisma` com o bloco `generator`/`datasource` — o Prisma CLI funde todos os arquivos da pasta automaticamente. Configuração de conexão e caminho do schema fica em `prisma7.config.ts`.
 
 ```bash
 # gerar o Prisma Client a partir do schema
@@ -230,9 +238,9 @@ npx prisma migrate deploy
 npx prisma migrate status
 ```
 
-O histórico de migrations neste projeto está incompleto por escolha — parte da evolução do schema (tabela `banks`, campos de 2FA, `ledger`/`balance`) foi aplicada via `db push` durante os estudos, sem gerar migration correspondente. Isso é aceitável para um ambiente de estudo; não reflete uma prática recomendada para produção.
+Parte da evolução inicial do schema (tabela `banks`, campos de 2FA, `ledger`/`balance`) foi aplicada via `db push` durante os estudos, sem gerar migration correspondente — isso foi reconciliado depois numa migration de catch-up que capturou o schema acumulado de uma vez (`npx prisma migrate status` confirma o banco sincronizado com o histórico atual). A partir dela, toda mudança de schema (incluindo o rename do enum `Type` para `LedgerType` e a criação da tabela `session`) segue via `migrate dev`.
 
-Uma migration (`balance_notification_trigger`) foge do padrão do Prisma Client: cria uma função `plpgsql` e uma trigger (`AFTER INSERT OR UPDATE ON balance`) que dispara `pg_notify('balance_updates', ...)` a cada mudança na tabela — é o que alimenta o endpoint de teste `/budget/balance/stream`. Trigger e função não têm representação no `schema.prisma` (o Prisma não modela isso declarativamente); o SQL foi escrito à mão dentro da pasta da migration.
+Uma migration (`balance_notification_trigger`) foge do padrão do Prisma Client: cria uma função `plpgsql` e uma trigger (`AFTER INSERT OR UPDATE ON balance`) que dispara `pg_notify('balance_updates', ...)` a cada mudança na tabela. Ela foi o primeiro experimento de `LISTEN`/`NOTIFY` puro pro endpoint `/budget/balance/stream`, mas ficou pra trás: o stream hoje usa poll com outbox em `Ledger` (ver seção de Rotas), então trigger e função continuam no banco sem consumidor. Trigger e função não têm representação no `schema.prisma` (o Prisma não modela isso declarativamente); o SQL foi escrito à mão dentro da pasta da migration.
 
 ### Seed
 
@@ -262,13 +270,11 @@ Testes unitários cobrem controllers, services, guards e strategies dos módulos
 
 ## Próximos passos
 
-- Decidir o destino do endpoint de teste `/budget/balance/stream` (removê-lo do módulo `budget` ou isolá-lo claramente como exemplo, já que não é um padrão adequado pra esse domínio).
-- Corrigir `doneTransaction` em `budget.service.ts`: dentro do `$transaction(async (tx) => ...)`, o `update` do saldo usa `this.db.balance.update(...)` em vez de `tx.balance.update(...)` — quebra a atomicidade da transação.
+- Remover ou dar `DROP` na trigger/função `balance_notification_trigger` — ficou sem consumidor depois que `/budget/balance/stream` passou a usar poll com outbox em `Ledger`.
 - Terminar os testes do módulo `budget` (controller, `reserveBalance`, `cancelReserve`, `doneTransaction`, `IdempotencyInterceptor`) e do `RedisService` — hoje sem cobertura nenhuma.
-- Persistir usuários e códigos de recuperação no PostgreSQL.
-- Revisar o tratamento de senhas e tokens.
+- Implementar cadastro de usuário e recuperação de senha (hoje só existe login; usuários são inseridos direto no banco).
+- Criptografar o `twoFactorSecret` em repouso — hoje fica em texto puro na tabela `users`.
 - Adicionar testes end-to-end para os fluxos de autenticação.
-- Decidir se o histórico de migrations do Prisma será reconciliado (baseline + `migrate dev` daí em diante) ou se o projeto segue com `db push`.
 - Estudar observabilidade e tratamento global de erros.
 
 ## Observação

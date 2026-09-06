@@ -86,9 +86,6 @@ export class BudgetController {
     @Header('Connection', 'keep-alive')
     @Sse('/balance/stream')
     public async balanceStream(@User() user: any) {
-        return this.budgetService.getNotificationStream().pipe(
-            map((payload) => ({ data: payload }) as MessageEvent),
-            filter((item) => item.data.user_id === user.userId),
-        );
+        return this.budgetService.getNotificationStream(user.userId);
     }
 }

@@ -6,13 +6,14 @@ enum LedgerType {
 }
 
 model Ledger {
-    id        String     @id @default(uuid(7))
-    userId    String     @map("user_id") @db.Uuid
-    type      LedgerType @default(RESERVED)
-    orderId   String     @map("order_id")
-    reserveId String     @map("reserve_id")
-    amount    Int        @map("amount")
-    timestamp DateTime?  @default(now())
+    id          String     @id @default(uuid(7))
+    userId      String     @map("user_id") @db.Uuid
+    type        LedgerType @default(RESERVED)
+    orderId     String     @map("order_id")
+    reserveId   String     @map("reserve_id")
+    amount      Int        @map("amount")
+    timestamp   DateTime?  @default(now())
+    publishedAt DateTime?  @map("published_at")
 
     user User @relation(fields: [userId], references: [id])
 

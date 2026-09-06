@@ -1,4 +1,4 @@
-import { LedgerType } from '@prisma';
+import { Balance, LedgerType } from '@prisma';
 
 export type UpdateLedger = {
     userId: string;
@@ -6,4 +6,8 @@ export type UpdateLedger = {
     orderId: string;
     reserveId: string;
     amount: number;
+};
+
+export type NotificationData = {
+    data: Balance | { error: string };
 };
