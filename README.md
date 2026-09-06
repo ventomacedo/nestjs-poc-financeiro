@@ -16,6 +16,7 @@ O projeto ainda está em construção. O código, as escolhas técnicas e a docu
 - Usar Prisma ORM (schema, migrations e Prisma Client) para acesso a dados.
 - Estudar idempotência em operações financeiras (módulo `budget`, com `Ledger`/`Balance` versionado e lock de idempotência via Redis) e experimentar entrega de eventos via SSE com padrão outbox (poll em `Ledger` + cursor `publishedAt`) — em andamento.
 - Implementar sessão/logout com revogação de token (tabela `Session`, vinculada ao usuário e ao JWT emitido).
+- Praticar hashing de senha com pepper (`argon2id`) e criptografia simétrica reversível (AES-256-GCM) pro segredo 2FA, que precisa ser recuperado em texto puro pra validar o TOTP.
 - Recuperar familiaridade com testes, configuração e execução de aplicações backend.
 
 ## Tecnologias
@@ -28,7 +29,8 @@ O projeto ainda está em construção. O código, as escolhas técnicas e a docu
 - Docker e Docker Compose
 - Prisma ORM (`@prisma/client`, driver adapter `@prisma/adapter-pg`)
 - JSON Web Token (JWT) e Passport
-- Autenticação de dois fatores (TOTP) com `otplib` e QR Code (`qrcode`)
+- Hash de senha com `argon2` (argon2id) + pepper
+- Autenticação de dois fatores (TOTP) com `otplib` e QR Code (`qrcode`), segredo criptografado em repouso (AES-256-GCM)
 - Manipulação de datas com `date-fns` e `@date-fns/tz`
 - Swagger para documentação da API
 - Jest e Supertest
@@ -127,6 +129,8 @@ DATABASE_URL=postgresql://myuser:mypassword@localhost:5432/postgres
 JWT_SECRET=uma-chave-secreta-para-desenvolvimento
 REDIS_HOST=0.0.0.0
 REDIS_PORT=6379
+TWO_FACTOR_SECRET_KEY=uma-chave-de-32-bytes-para-criptografar-o-segredo-2fa
+PEPPER_SECRET=um-pepper-concatenado-a-senha-antes-do-hash
 ```
 
 O arquivo `.env` não deve ser versionado. Para ambientes reais, use uma chave JWT forte e mantenha os segredos fora do código-fonte.
@@ -273,7 +277,6 @@ Testes unitários cobrem controllers, services, guards e strategies dos módulos
 - Remover ou dar `DROP` na trigger/função `balance_notification_trigger` — ficou sem consumidor depois que `/budget/balance/stream` passou a usar poll com outbox em `Ledger`.
 - Terminar os testes do módulo `budget` (controller, `reserveBalance`, `cancelReserve`, `doneTransaction`, `IdempotencyInterceptor`) e do `RedisService` — hoje sem cobertura nenhuma.
 - Implementar cadastro de usuário e recuperação de senha (hoje só existe login; usuários são inseridos direto no banco).
-- Criptografar o `twoFactorSecret` em repouso — hoje fica em texto puro na tabela `users`.
 - Adicionar testes end-to-end para os fluxos de autenticação.
 - Estudar observabilidade e tratamento global de erros.
 

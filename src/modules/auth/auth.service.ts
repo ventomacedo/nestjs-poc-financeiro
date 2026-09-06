@@ -1,4 +1,5 @@
-import * as bcrypt from 'bcrypt';
+import type { User } from '@prisma';
+import * as argon2 from 'argon2';
 
 import {
     BadRequestException,
@@ -6,6 +7,7 @@ import {
     NotFoundException,
     UnauthorizedException,
 } from '@nestjs/common';
+
 import { JwtService } from '@nestjs/jwt';
 import * as QRCode from 'qrcode';
 import { OTP } from 'otplib';
@@ -14,9 +16,9 @@ import { LoginResponseDto } from './dto/login-response.dto';
 import { TwoFactorAuthSyncResponse } from './dto/two-factor-auth-sync-response.dto';
 import { TwoFactorAuthResponse } from './dto/two-factor-auth-response.dto';
 import { PrismaService } from '@database';
-import type { User } from '@prisma';
-import { expTimeToDabase } from '@shared/utils';
 
+import { expTimeToDabase } from '@shared/utils';
+import { decrypt, encrypt } from '@shared/utils';
 @Injectable()
 export class AuthService {
     private readonly otp: OTP;
@@ -40,10 +42,11 @@ export class AuthService {
 
             if (!user) throw new UnauthorizedException(INVALID_MESSAGE);
 
-            const passwordIsValid = await bcrypt.compare(
-                _password,
+            const passwordIsValid = await this.verifyPassword(
                 user.password,
+                _password,
             );
+
             if (!passwordIsValid)
                 throw new UnauthorizedException(INVALID_MESSAGE);
 
@@ -85,7 +88,7 @@ export class AuthService {
             label: user.email,
             secret,
         });
-        await this.updateUserSecret(user.id, secret);
+        await this.updateUserSecret(user.id, encrypt(secret));
         const qrCodeDataURL = await QRCode.toDataURL(otpAuthURL);
 
         return {
@@ -107,7 +110,7 @@ export class AuthService {
 
         const { valid } = await this.otp.verify({
             token: code,
-            secret: user.twoFactorSecret,
+            secret: decrypt(user.twoFactorSecret),
         });
 
         if (!valid)
@@ -118,6 +121,7 @@ export class AuthService {
         return { accessToken };
     }
 
+    // Privates
     private async updateUserSecret(
         userId: string,
         secret: string,
@@ -180,5 +184,23 @@ export class AuthService {
             where: { token: session },
             data: { revokedAt: new Date() },
         });
+    }
+
+    private async hashPassword(input: string): Promise<string> {
+        const pepper = process.env.PEPPER_SECRET;
+        return await argon2.hash(`${input}${pepper}`, {
+            type: argon2.argon2id,
+            memoryCost: 65536,
+            timeCost: 3,
+            parallelism: 4,
+        });
+    }
+
+    private async verifyPassword(
+        hash: string,
+        input: string,
+    ): Promise<boolean> {
+        const pepper = process.env.PEPPER_SECRET;
+        return await argon2.verify(hash, `${input}${pepper}`);
     }
 }
