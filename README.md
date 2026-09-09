@@ -68,7 +68,7 @@ src/
 │       ├── types/
 │       ├── tests/
 │       ├── budget.controller.ts
-│       ├── budget.interceptor.ts   # interceptor de idempotência (Redis)
+│       ├── idempotency.interceptor.ts   # interceptor de idempotência (Redis)
 │       ├── budget.module.ts
 │       └── budget.service.ts
 ├── database/
@@ -131,6 +131,7 @@ REDIS_HOST=0.0.0.0
 REDIS_PORT=6379
 TWO_FACTOR_SECRET_KEY=uma-chave-de-32-bytes-para-criptografar-o-segredo-2fa
 PEPPER_SECRET=um-pepper-concatenado-a-senha-antes-do-hash
+LOG_LEVEL=info
 ```
 
 O arquivo `.env` não deve ser versionado. Para ambientes reais, use uma chave JWT forte e mantenha os segredos fora do código-fonte.
@@ -153,6 +154,16 @@ Para interromper os containers:
 ```bash
 docker compose down
 ```
+
+## Docker (aplicação)
+
+O `docker-compose.yml` também define um serviço `app`, que builda a aplicação a partir do `dockerfile` (multi-stage: build + imagem final rodando como usuário não-root) e sobe junto com PostgreSQL e Redis:
+
+```bash
+docker compose up -d --build
+```
+
+O serviço `app` lê as variáveis de ambiente (`APP_NAME`, `DATABASE_URL`, `JWT_SECRET`, etc.) do `.env` na raiz do projeto e expõe a porta `3000`. O `dockerfile` inclui um `HEALTHCHECK` que bate em `/api/v1/health` (rota exposta por `AppController`).
 
 ## Executando o projeto
 
@@ -185,8 +196,8 @@ As rotas de autenticação usam o prefixo `/api/v1/auth`. O fluxo de login é fe
 | ------ | ---------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `POST` | `/auth/signin`                           | —                           | Login com e-mail e senha. Retorna `twoFactorAuthToken` e o próximo passo (`MFA_SYNC` ou `MFA_VALIDATE`) |
 | `POST` | `/auth/sync-app-authenticator`           | Bearer `twoFactorAuthToken` | Gera segredo e QR Code para o usuário sincronizar o app authenticator (primeiro acesso)                 |
-| `POST` | `/auth/verify-two-factor-authentication` | Bearer `twoFactorAuthToken` | Valida o código TOTP, persiste a sessão (tabela `Session`) e retorna o `accessToken` final               |
-| `GET`  | `/auth/signout`                           | Bearer `accessToken`        | Revoga a sessão do `accessToken` enviado (marca `revokedAt` na tabela `Session`)                        |
+| `POST` | `/auth/verify-two-factor-authentication` | Bearer `twoFactorAuthToken` | Valida o código TOTP, persiste a sessão (tabela `Session`) e retorna o `accessToken` final              |
+| `GET`  | `/auth/signout`                          | Bearer `accessToken`        | Revoga a sessão do `accessToken` enviado (marca `revokedAt` na tabela `Session`)                        |
 
 `accessToken` (tipo `FULL_AUTH`) é validado contra a tabela `Session` a cada requisição (`JwtStrategy`), não só pela assinatura do JWT — isso permite revogar acesso antes da expiração natural do token via `/auth/signout`. `twoFactorAuthToken` (tipo `PRE_AUTH`) não passa por essa checagem, só pela assinatura/expiração do próprio JWT (TTL curto de 5 minutos).
 
@@ -208,13 +219,13 @@ A rota de relógio usa o prefixo `/api/v1/clock` e exige `accessToken` (Bearer).
 
 O módulo `budget` (prefixo `/api/v1/budget`) é o experimento de idempotência em operações financeiras — `Balance` é versionado (chave composta `userId` + `version`, sem coluna `id` própria) e `Ledger` registra cada lançamento (`RESERVED`/`REFUNDED`/`WITHDRAW`/`CREDITED`). As rotas de escrita (`reserve`, `cancel`, `confirm`) passam por `IdempotencyInterceptor`, que usa Redis como lock (`transactionId` do body vira chave, com TTL) pra impedir que a mesma requisição seja processada duas vezes.
 
-| Método | Rota                     | Autenticação         | Finalidade                                                                                                                                                                                                                                                                                                                                                                                              |
-| ------ | ------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`  | `/budget/balance`        | Bearer `accessToken` | Busca o saldo (versão mais recente) do usuário autenticado                                                                                                                                                                                                                                                                                                                                              |
-| `GET`  | `/budget/ledger`         | Bearer `accessToken` | Lista o histórico de lançamentos do usuário autenticado                                                                                                                                                                                                                                                                                                                                                 |
-| `POST` | `/budget/reserve`        | Bearer `accessToken` | Reserva um valor do saldo disponível (bloqueia), idempotente por `transactionId`                                                                                                                                                                                                                                                                                                                        |
-| `POST` | `/budget/cancel`         | Bearer `accessToken` | Cancela uma reserva, devolve o valor ao saldo disponível                                                                                                                                                                                                                                                                                                                                                |
-| `POST` | `/budget/confirm`        | Bearer `accessToken` | Confirma (efetiva) uma reserva como saque                                                                                                                                                                                                                                                                                                                                                               |
+| Método | Rota                     | Autenticação         | Finalidade                                                                                                                                                                                                                                                                                                          |
+| ------ | ------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/budget/balance`        | Bearer `accessToken` | Busca o saldo (versão mais recente) do usuário autenticado                                                                                                                                                                                                                                                          |
+| `GET`  | `/budget/ledger`         | Bearer `accessToken` | Lista o histórico de lançamentos do usuário autenticado                                                                                                                                                                                                                                                             |
+| `POST` | `/budget/reserve`        | Bearer `accessToken` | Reserva um valor do saldo disponível (bloqueia), idempotente por `transactionId`                                                                                                                                                                                                                                    |
+| `POST` | `/budget/cancel`         | Bearer `accessToken` | Cancela uma reserva, devolve o valor ao saldo disponível                                                                                                                                                                                                                                                            |
+| `POST` | `/budget/confirm`        | Bearer `accessToken` | Confirma (efetiva) uma reserva como saque                                                                                                                                                                                                                                                                           |
 | `GET`  | `/budget/balance/stream` | Bearer `accessToken` | SSE com padrão outbox: faz poll em `Ledger` a cada 5s filtrando por `userId` e `publishedAt: null`, marca as linhas encontradas como publicadas e emite o `Balance` atual daquele usuário. `Ledger` funciona como fila (cursor `publishedAt`, at-least-once); `distinctUntilChanged` evita reemitir o mesmo estado. |
 
 A documentação interativa (Swagger) fica disponível em `/docs` com a aplicação em execução.
@@ -274,11 +285,12 @@ Testes unitários cobrem controllers, services, guards e strategies dos módulos
 
 ## Próximos passos
 
-- Remover ou dar `DROP` na trigger/função `balance_notification_trigger` — ficou sem consumidor depois que `/budget/balance/stream` passou a usar poll com outbox em `Ledger`.
 - Terminar os testes do módulo `budget` (controller, `reserveBalance`, `cancelReserve`, `doneTransaction`, `IdempotencyInterceptor`) e do `RedisService` — hoje sem cobertura nenhuma.
-- Implementar cadastro de usuário e recuperação de senha (hoje só existe login; usuários são inseridos direto no banco).
 - Adicionar testes end-to-end para os fluxos de autenticação.
 - Estudar observabilidade e tratamento global de erros.
+- Adicionar um detector de anomalias comportamentais anti-fraude
+- Adicionar um rate limit por segurança
+- Adicionar um conciliador de saldos (real-time) que dispara um alert para o backoffie em caso de discrepância.
 
 ## Observação
 

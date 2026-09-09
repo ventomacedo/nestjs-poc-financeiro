@@ -1,3 +1,4 @@
+import { TransactionIsolationLevel } from './../../../generated/prisma/internal/prismaNamespace';
 import { PrismaService } from '@database';
 import {
     BadRequestException,
@@ -8,7 +9,7 @@ import {
     UnprocessableEntityException,
 } from '@nestjs/common';
 
-import { Balance, Ledger } from '@prisma';
+import { Balance, Ledger, Prisma } from '@prisma';
 import { ReserveBalanceRequestDto } from './dto/reserve-balance-request.dto';
 import { NotificationData, UpdateLedger } from './types';
 import { CancelReserveRequestDto } from './dto/cancel-reserve-request.dto';
@@ -23,7 +24,6 @@ import {
     distinctUntilChanged,
 } from 'rxjs';
 
-const NOTIFICATION = 'balance_notification';
 @Injectable()
 export class BudgetService {
     constructor(private readonly db: PrismaService) {}
@@ -66,33 +66,39 @@ export class BudgetService {
             if (balance?.available < amount || balance?.available <= 0)
                 throw new UnprocessableEntityException('Saldo insuficiente');
 
-            return await this.db.$transaction(async (tx) => {
-                const result = await tx.balance
-                    .update({
-                        where: { userId, version: version },
-                        data: {
-                            locked: balance.locked + amount,
-                            available: balance.available - amount,
-                            version: balance.version + 1,
-                        },
-                    })
-                    .catch(() => {
-                        throw new ConflictException(
-                            'Conflito de idempotência.',
-                        );
-                    });
+            return await this.db.$transaction(
+                async (tx) => {
+                    const result = await tx.balance
+                        .update({
+                            where: { userId, version: version },
+                            data: {
+                                locked: balance.locked + amount,
+                                available: balance.available - amount,
+                                version: balance.version + 1,
+                            },
+                        })
+                        .catch(() => {
+                            throw new ConflictException(
+                                'Conflito de idempotência.',
+                            );
+                        });
 
-                if (result.locked)
-                    await this.updateLedger(tx, {
-                        userId,
-                        type: 'RESERVED',
-                        orderId,
-                        amount,
-                        reserveId: transactionId,
-                    });
+                    if (result.locked)
+                        await this.updateLedger(tx, {
+                            userId,
+                            type: 'RESERVED',
+                            orderId,
+                            amount,
+                            reserveId: transactionId,
+                        });
 
-                return result;
-            });
+                    return result;
+                },
+                {
+                    isolationLevel:
+                        Prisma.TransactionIsolationLevel.Serializable,
+                },
+            );
         } catch (error) {
             console.error(error);
             throw error;
@@ -121,31 +127,38 @@ export class BudgetService {
                 'Valor de estorno inválido para o saldo bloqueado.',
             );
 
-        return await this.db.$transaction(async (tx) => {
-            const result = await tx.balance
-                .update({
-                    where: { userId, version: version },
-                    data: {
-                        available: balance.available + transaction.amount,
-                        locked: balance.locked - transaction?.amount,
-                        version: balance.version + 1,
-                    },
-                })
-                .catch(() => {
-                    throw new ConflictException('Conflito de idempotência.');
-                });
+        return await this.db.$transaction(
+            async (tx) => {
+                const result = await tx.balance
+                    .update({
+                        where: { userId, version: version },
+                        data: {
+                            available: balance.available + transaction.amount,
+                            locked: balance.locked - transaction?.amount,
+                            version: balance.version + 1,
+                        },
+                    })
+                    .catch(() => {
+                        throw new ConflictException(
+                            'Conflito de idempotência.',
+                        );
+                    });
 
-            if (result.available)
-                await this.updateLedger(tx, {
-                    userId: transaction.userId,
-                    type: 'REFUNDED',
-                    orderId,
-                    amount: transaction.amount,
-                    reserveId: transactionId,
-                });
+                if (result.available)
+                    await this.updateLedger(tx, {
+                        userId: transaction.userId,
+                        type: 'REFUNDED',
+                        orderId,
+                        amount: transaction.amount,
+                        reserveId: transactionId,
+                    });
 
-            return result;
-        });
+                return result;
+            },
+            {
+                isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            },
+        );
     }
 
     public async doneTransaction(
@@ -163,26 +176,31 @@ export class BudgetService {
                 'Não foi possível encontrar a trasação.',
             );
 
-        return await this.db.$transaction(async (tx) => {
-            const result = await tx.balance.update({
-                where: { userId, version },
-                data: {
-                    locked: balance?.locked - transaction.amount,
-                    version: balance.version + 1,
-                },
-            });
-
-            if (result.version)
-                await this.updateLedger(tx, {
-                    userId: transaction.userId,
-                    type: 'WITHDRAW',
-                    orderId,
-                    amount: transaction.amount,
-                    reserveId: transaction.reserveId,
+        return await this.db.$transaction(
+            async (tx) => {
+                const result = await tx.balance.update({
+                    where: { userId, version },
+                    data: {
+                        locked: balance?.locked - transaction.amount,
+                        version: balance.version + 1,
+                    },
                 });
 
-            return result;
-        });
+                if (result.version)
+                    await this.updateLedger(tx, {
+                        userId: transaction.userId,
+                        type: 'WITHDRAW',
+                        orderId,
+                        amount: transaction.amount,
+                        reserveId: transaction.reserveId,
+                    });
+
+                return result;
+            },
+            {
+                isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            },
+        );
     }
 
     private async updateLedger(

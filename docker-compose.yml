@@ -1,5 +1,37 @@
 version: '3.8'
 services:
+    app:
+        build:
+            context: .
+            dockerfile: dockerfile
+        container_name: nestjs-app
+        restart: unless-stopped
+        ports:
+            - '3000:3000'
+        environment:
+            - NODE_ENV=production
+            - APP_NAME=${APP_NAME}
+            - DATABASE_URL=${DATABASE_URL}
+            - JWT_SECRET=${JWT_SECRET}
+            - REDIS_HOST=${REDIS_HOST}
+            - REDIS_PORT=${REDIS_PORT}
+            - TWO_FACTOR_SECRET_KEY=${TWO_FACTOR_SECRET_KEY}
+            - PEPPER_SECRET=${PEPPER_SECRET}
+            - LOG_LEVEL=info
+        depends_on:
+            - postgree
+            - redis
+        networks:
+            - app-network
+        # deploy:
+        #     resources:
+        #         limits:
+        #             cpu: '1'
+        #             memory: 512M
+        #         reservation:
+        #             cpus: '0.5'
+        #             memory: 256M
+
     postgree:
         image: postgres:latest
         container_name: postgree
@@ -9,9 +41,25 @@ services:
             POSTGRES_DB: mydatabase
         ports:
             - '5432:5432'
+        networks:
+            - app-network
+        # healthcheck:
+        #     test: ["CMD-SHELL", "pg_isready -U postgres"]
+        #     interval: 10s
+        #     timeout: 5s
+        #     retries: 5
 
     redis:
         image: redis:7-alpine
         container_name: redis
         ports:
             - '6379:6379'
+        networks:
+            - app-network
+
+# volumes:
+#     postgres_data:
+
+networks:
+    app-network:
+        driver: bridge

@@ -2,12 +2,13 @@ import './register-paths';
 
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 
 async function bootstrap() {
     const app = await NestFactory.create(AppModule);
     app.setGlobalPrefix('api/v1');
+    // app.enableCors();
 
     // Swagger Document
     const config = new DocumentBuilder()
@@ -29,5 +30,12 @@ async function bootstrap() {
     );
 
     await app.listen(process.env.PORT ?? 3000);
+    Logger.log('🚀 Servidor iniciado na porta 3000');
 }
+
+process.on('SIGTERM', async () => {
+    Logger.log('SIGTERM recebido - encerrando gracefully...');
+    process.exit(0);
+});
+
 bootstrap();
