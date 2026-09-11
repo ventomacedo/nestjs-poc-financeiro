@@ -116,7 +116,14 @@ prisma/
 test/
 └── jest-e2e.json   # config do Jest pros testes end-to-end (*.e2e-spec.ts)
 
+skills/
+└── nest-controller-generator.skill.md   # skill de geração de controllers seguindo os padrões do knowledge.md
+
 jest.config.ts
+knowledge.md   # base de conhecimento do projeto pra agentes de IA (ver seção "Base de conhecimento e skills")
+prisma7.config.ts   # config do Prisma CLI (schema path + connection string)
+docker-compose.yml
+dockerfile
 ```
 
 Módulo `banks` também ganhou `repositories/` (interface + implementação Prisma), no mesmo padrão do `budget`.
