@@ -66,11 +66,15 @@ src/
 │   └── budget/
 │       ├── dto/
 │       ├── types/
+│       ├── repository/   # interfaces + implementação Prisma (balance, ledger)
 │       ├── tests/
 │       ├── budget.controller.ts
+│       ├── budget.service.ts   # facade: delega pra balance.service / ledger.service
+│       ├── balance.service.ts
+│       ├── ledger.service.ts
 │       ├── idempotency.interceptor.ts   # interceptor de idempotência (Redis)
 │       ├── budget.module.ts
-│       └── budget.service.ts
+│       └── index.ts
 ├── database/
 │   ├── database.module.ts
 │   ├── prisma.service.ts
@@ -80,9 +84,16 @@ src/
 │   │   ├── is-tax-id.decorator.ts
 │   │   ├── user.decorator.ts
 │   │   └── index.ts
-│   └── redis/
-│       ├── redis.module.ts
-│       └── redis.service.ts
+│   ├── filters/
+│   │   └── http-exception.filter.ts   # filtro global de exceções (logs erro 500 inesperado)
+│   ├── redis/
+│   │   ├── redis.module.ts
+│   │   └── redis.service.ts
+│   └── utils/
+│       ├── crypt.ts
+│       ├── date.ts
+│       ├── functions.ts
+│       └── index.ts
 ├── register-paths.ts
 ├── app.controller.ts
 ├── app.module.ts
@@ -102,8 +113,13 @@ prisma/
 │   └── banks.seed.sql   # principais instituições financeiras do Brasil
 └── seed.ts   # runner do seed (`npx prisma db seed`)
 
+test/
+└── jest-e2e.json   # config do Jest pros testes end-to-end (*.e2e-spec.ts)
+
 jest.config.ts
 ```
+
+Módulo `banks` também ganhou `repositories/` (interface + implementação Prisma), no mesmo padrão do `budget`.
 
 Cada módulo de domínio expõe só o que os outros precisam através do `index.ts` (barrel). Imports entre módulos usam aliases (`@auth`, `@banks`, `@clock`, `@database`, `@shared/decorators`, `@shared/utils`, `@prisma`) — a lista fica só em `tsconfig.json` (`baseUrl` + `paths`); tanto `jest.config.ts` (via `pathsToModuleNameMapper` do `ts-jest`) quanto `src/register-paths.ts` (resolução em runtime pro build compilado, via `tsconfig-paths`) leem esse mesmo arquivo em vez de duplicar a lista.
 
@@ -281,12 +297,12 @@ yarn test:cov
 yarn test:e2e
 ```
 
-Testes unitários cobrem controllers, services, guards e strategies dos módulos `auth`, `banks` e `clock`, além do decorator `is-tax-id`. Todos os `it` estão em inglês; nomes de `describe` e mensagens de negócio (exceptions, DTOs) seguem em português. O módulo `budget` está ganhando testes aos poucos (cobertura parcial de `getBalance`/`getLeader`/`getNotificationStream`; ainda faltam `reserveBalance`, `cancelReserve`, `doneTransaction`, o controller e o `IdempotencyInterceptor`). Testes end-to-end ainda não foram implementados.
+Testes unitários cobrem controllers, services, guards e strategies dos módulos `auth`, `banks` e `clock`, além do decorator `is-tax-id`. Todos os `it` estão em inglês; nomes de `describe` e mensagens de negócio (exceptions, DTOs) seguem em português. O módulo `budget` foi dividido em `budget.service` (facade), `balance.service` e `ledger.service`, todos cobertos; ainda faltam o controller e o `IdempotencyInterceptor`. Testes end-to-end existem pro módulo `banks` (`banks.e2e-spec.ts`); os demais módulos ainda não têm.
 
 ## Próximos passos
 
-- Terminar os testes do módulo `budget` (controller, `reserveBalance`, `cancelReserve`, `doneTransaction`, `IdempotencyInterceptor`) e do `RedisService` — hoje sem cobertura nenhuma.
-- Adicionar testes end-to-end para os fluxos de autenticação.
+- Terminar os testes do módulo `budget` (controller e `IdempotencyInterceptor`) e do `RedisService` — hoje sem cobertura nenhuma.
+- Adicionar testes end-to-end para os fluxos de autenticação e budget (`banks` já tem).
 - Estudar observabilidade e tratamento global de erros.
 - Adicionar um detector de anomalias comportamentais anti-fraude
 - Adicionar um rate limit por segurança
