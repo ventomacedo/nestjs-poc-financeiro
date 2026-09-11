@@ -3,17 +3,16 @@ import { NotFoundException } from '@nestjs/common';
 import { BanksService } from '../banks.service';
 import { CreateBankRequestDto } from '../dto/create-bank-request.dto';
 import { UpdateBankRequestDto } from '../dto/update-bank-request.dto';
+import { IBankRepository } from '../repositories/bank.repository.interface';
 
 describe('BanksService', () => {
     let banksService: BanksService;
-    let db: {
-        bank: {
-            findMany: jest.Mock;
-            findFirst: jest.Mock;
-            create: jest.Mock;
-            update: jest.Mock;
-            delete: jest.Mock;
-        };
+    let banksRepository: {
+        findAll: jest.Mock;
+        find: jest.Mock;
+        create: jest.Mock;
+        update: jest.Mock;
+        delete: jest.Mock;
     };
 
     const bank = {
@@ -29,60 +28,53 @@ describe('BanksService', () => {
     };
 
     beforeEach(() => {
-        db = {
-            bank: {
-                findMany: jest.fn(),
-                findFirst: jest.fn(),
-                create: jest.fn(),
-                update: jest.fn(),
-                delete: jest.fn(),
-            },
+        banksRepository = {
+            findAll: jest.fn(),
+            find: jest.fn(),
+            create: jest.fn(),
+            update: jest.fn(),
+            delete: jest.fn(),
         };
-        banksService = new BanksService(db as never);
-        jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    });
-
-    afterEach(() => {
-        jest.restoreAllMocks();
+        banksService = new BanksService(
+            banksRepository as unknown as IBankRepository,
+        );
     });
 
     describe('getBanks', () => {
         it('returns the list of financial institutions', async () => {
-            db.bank.findMany.mockResolvedValue([bank]);
+            banksRepository.findAll.mockResolvedValue([bank]);
 
             const result = await banksService.getBanks();
 
-            expect(db.bank.findMany).toHaveBeenCalledWith();
+            expect(banksRepository.findAll).toHaveBeenCalledWith();
             expect(result).toEqual([bank]);
         });
 
-        it('returns an empty list when the query fails', async () => {
-            db.bank.findMany.mockRejectedValue(new Error('db offline'));
+        it('propagates the error when the query fails', async () => {
+            const error = new Error('db offline');
+            banksRepository.findAll.mockRejectedValue(error);
 
-            const result = await banksService.getBanks();
-
-            expect(result).toEqual([]);
+            await expect(banksService.getBanks()).rejects.toThrow(error);
         });
     });
 
     describe('findBankById', () => {
         it('returns the institution found by id', async () => {
-            db.bank.findFirst.mockResolvedValue(bank);
+            banksRepository.find.mockResolvedValue(bank);
 
             const result = await banksService.findBankById(bank.id);
 
-            expect(db.bank.findFirst).toHaveBeenCalledWith({
-                where: { id: bank.id },
-            });
+            expect(banksRepository.find).toHaveBeenCalledWith(bank.id);
             expect(result).toEqual(bank);
         });
 
-        it('returns null when the query fails', async () => {
-            db.bank.findFirst.mockRejectedValue(new Error('db offline'));
+        it('propagates the error when the query fails', async () => {
+            const error = new Error('db offline');
+            banksRepository.find.mockRejectedValue(error);
 
-            const result = await banksService.findBankById(bank.id);
-
-            expect(result).toBeNull();
+            await expect(banksService.findBankById(bank.id)).rejects.toThrow(
+                error,
+            );
         });
     });
 
@@ -96,19 +88,17 @@ describe('BanksService', () => {
         };
 
         it('creates and returns the financial institution', async () => {
-            db.bank.create.mockResolvedValue(bank);
+            banksRepository.create.mockResolvedValue(bank);
 
             const result = await banksService.createBank(createDto);
 
-            expect(db.bank.create).toHaveBeenCalledWith({
-                data: { ...createDto },
-            });
+            expect(banksRepository.create).toHaveBeenCalledWith(createDto);
             expect(result).toEqual(bank);
         });
 
         it('propagates the error when creation fails', async () => {
             const error = new Error('create failed');
-            db.bank.create.mockRejectedValue(error);
+            banksRepository.create.mockRejectedValue(error);
 
             await expect(banksService.createBank(createDto)).rejects.toThrow(
                 error,
@@ -126,19 +116,19 @@ describe('BanksService', () => {
         };
 
         it('updates and returns the financial institution', async () => {
-            db.bank.update.mockResolvedValue(bank);
+            banksRepository.update.mockResolvedValue(bank);
 
             const result = await banksService.updateBank(updateDto, bank.id);
 
-            expect(db.bank.update).toHaveBeenCalledWith({
-                where: { id: bank.id },
-                data: { ...updateDto },
-            });
+            expect(banksRepository.update).toHaveBeenCalledWith(
+                bank.id,
+                updateDto,
+            );
             expect(result).toEqual(bank);
         });
 
         it('throws NotFoundException when no record is updated', async () => {
-            db.bank.update.mockResolvedValue(null);
+            banksRepository.update.mockResolvedValue(null);
 
             await expect(
                 banksService.updateBank(updateDto, 'unknown-id'),
@@ -147,7 +137,7 @@ describe('BanksService', () => {
 
         it('propagates the error when the update fails', async () => {
             const error = new Error('update failed');
-            db.bank.update.mockRejectedValue(error);
+            banksRepository.update.mockRejectedValue(error);
 
             await expect(
                 banksService.updateBank(updateDto, bank.id),
@@ -157,19 +147,16 @@ describe('BanksService', () => {
 
     describe('deleteBank', () => {
         it('removes the financial institution', async () => {
-            db.bank.delete.mockResolvedValue({ id: bank.id });
+            banksRepository.delete.mockResolvedValue({ id: bank.id });
 
             await expect(
                 banksService.deleteBank(bank.id),
             ).resolves.toBeUndefined();
-            expect(db.bank.delete).toHaveBeenCalledWith({
-                where: { id: bank.id },
-                select: { id: true },
-            });
+            expect(banksRepository.delete).toHaveBeenCalledWith(bank.id);
         });
 
         it('throws NotFoundException when no record is removed', async () => {
-            db.bank.delete.mockResolvedValue({ id: undefined });
+            banksRepository.delete.mockResolvedValue({ id: undefined });
 
             await expect(
                 banksService.deleteBank('unknown-id'),
@@ -178,7 +165,7 @@ describe('BanksService', () => {
 
         it('propagates the error when removal fails', async () => {
             const error = new Error('delete failed');
-            db.bank.delete.mockRejectedValue(error);
+            banksRepository.delete.mockRejectedValue(error);
 
             await expect(banksService.deleteBank(bank.id)).rejects.toThrow(
                 error,

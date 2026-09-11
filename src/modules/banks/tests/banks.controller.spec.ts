@@ -41,9 +41,8 @@ describe('BanksController', () => {
         it('delegates to BanksService.getBanks', async () => {
             banksService.getBanks.mockResolvedValue([bank]);
 
-            const result = (await banksController.getBanks(
-                {},
-            )) as (typeof bank)[];
+            const result =
+                (await banksController.getBanks()) as (typeof bank)[];
 
             expect(banksService.getBanks).toHaveBeenCalledWith();
             expect(result).toEqual([bank]);

@@ -7,7 +7,7 @@ import { AuthModule } from '@auth';
 import { DatabaseModule } from '@database';
 import { BanksModule } from '@banks';
 import { ClockModule } from '@clock';
-import { BalanceModule } from './modules/budget/budget.module';
+import { BudgetModules } from './modules/budget/budget.module';
 import { RedisModule } from './shared/redis/redis.module';
 @Module({
     imports: [
@@ -18,7 +18,7 @@ import { RedisModule } from './shared/redis/redis.module';
         AuthModule,
         BanksModule,
         ClockModule,
-        BalanceModule,
+        BudgetModules,
         RedisModule,
     ],
     controllers: [AppController],

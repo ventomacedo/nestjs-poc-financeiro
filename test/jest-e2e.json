@@ -1,0 +1,22 @@
+{
+    "moduleFileExtensions": ["js", "json", "ts"],
+    "rootDir": "..",
+    "testEnvironment": "node",
+    "testRegex": ".e2e-spec.ts$",
+    "transform": {
+        "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "transformIgnorePatterns": [
+        "node_modules/(?!(@nestjs/passport|otplib|@otplib|@scure|@noble)/)"
+    ],
+    "moduleNameMapper": {
+        "^(\\.{1,2}/.*)\\.js$": "$1",
+        "^@auth$": "<rootDir>/src/modules/auth/index.ts",
+        "^@banks$": "<rootDir>/src/modules/banks/index.ts",
+        "^@clock$": "<rootDir>/src/modules/clock/index.ts",
+        "^@database$": "<rootDir>/src/database/index.ts",
+        "^@shared/decorators$": "<rootDir>/src/shared/decorators/index.ts",
+        "^@shared/utils$": "<rootDir>/src/shared/utils/index.ts",
+        "^@prisma$": "<rootDir>/generated/prisma/client.ts"
+    }
+}

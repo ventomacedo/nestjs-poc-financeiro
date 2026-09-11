@@ -17,7 +17,7 @@ const paths: Record<string, string[]> = Object.fromEntries(
 const config: Config = {
     moduleFileExtensions: ['js', 'json', 'ts'],
     rootDir: 'src',
-    testRegex: '.*\\.spec\\.ts$',
+    testRegex: '.*(?<!\\.e2e)\\.spec\\.ts$',
     moduleNameMapper: {
         ...pathsToModuleNameMapper(paths, { prefix: '<rootDir>/' }),
         '^(\\.{1,2}/.*)\\.js$': '$1',

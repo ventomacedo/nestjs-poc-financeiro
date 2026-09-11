@@ -71,11 +71,10 @@ export class BudgetController {
         @User() user: any,
         @Body() body: DoneTrasactionRequestDto,
     ) {
-        await this.budgetService.doneTransaction(
-            user.userId,
-            body.orderId,
-            body.version,
-        );
+        await this.budgetService.doneTransaction(user.userId, {
+            orderId: body.orderId,
+            version: body.version,
+        });
     }
 
     @UseGuards(JwthGuard)

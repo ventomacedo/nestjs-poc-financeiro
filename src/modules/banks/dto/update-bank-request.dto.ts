@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty } from 'class-validator';
+import { IsNotEmpty, IsOptional } from 'class-validator';
 import { IsTaxId } from '@shared/decorators';
 
 export class UpdateBankRequestDto {
@@ -29,6 +29,7 @@ export class UpdateBankRequestDto {
         example: '001',
         description: 'Identificador do Sistema de Pagamneto Brasileiro',
     })
+    @IsOptional()
     ispb!: string;
 
     @ApiProperty({
