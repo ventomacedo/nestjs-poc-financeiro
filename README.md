@@ -141,14 +141,24 @@ Crie o arquivo `.env` na raiz do projeto. O arquivo `.env.example` pode ser usad
 
 ```env
 APP_NAME=EstudoNest
-DATABASE_URL=postgresql://myuser:mypassword@localhost:5432/postgres
+
+POSTGRES_HOST=host-do-banco
+POSTGRES_USER=usuario-do-banco
+POSTGRES_PASSWORD=senha-do-banco
+POSTGRES_DB=nome-do-banco
+POSTGRES_PORT=porta-do-banco
+
+REDIS_HOST=host-do-redis
+REDIS_PORT=porta-do-redis
+
 JWT_SECRET=uma-chave-secreta-para-desenvolvimento
-REDIS_HOST=0.0.0.0
-REDIS_PORT=6379
 TWO_FACTOR_SECRET_KEY=uma-chave-de-32-bytes-para-criptografar-o-segredo-2fa
 PEPPER_SECRET=um-pepper-concatenado-a-senha-antes-do-hash
+
 LOG_LEVEL=info
 ```
+
+Não existe mais `DATABASE_URL` — tanto `PrismaService` (runtime, via `@prisma/adapter-pg`) quanto `prisma7.config.ts` (Prisma CLI) montam a connection string a partir de `POSTGRES_HOST`/`POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_PORT`/`POSTGRES_DB`, em vez de ler uma string pronta. Pra rodar a aplicação fora de container (`yarn start:dev`) contra o Postgres do `docker-compose.yml`, use `POSTGRES_HOST=localhost`; dentro do `docker-compose.yml`, o serviço `app` já sobrescreve `POSTGRES_HOST`/`POSTGRES_PORT` pro nome do serviço (`postgree`) e porta interna (`5432`) — os demais valores (`POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB`) vêm do `.env`. `REDIS_HOST`/`REDIS_PORT` seguem a mesma lógica pro serviço `redis`.
 
 O arquivo `.env` não deve ser versionado. Para ambientes reais, use uma chave JWT forte e mantenha os segredos fora do código-fonte.
 
@@ -160,10 +170,10 @@ Suba PostgreSQL e Redis com Docker Compose:
 docker compose up -d
 ```
 
-| Serviço    | Porta  | Configuração                                           |
-| ---------- | ------ | ------------------------------------------------------ |
-| PostgreSQL | `5432` | usuário `myuser`, senha `mypassword`, banco `postgres` |
-| Redis      | `6379` | sem autenticação (uso local de estudo)                 |
+| Serviço    | Porta                    | Configuração                                                                    |
+| ---------- | ------------------------ | ------------------------------------------------------------------------------- |
+| PostgreSQL | `POSTGRES_PORT` (`5432`) | usuário/senha/banco vindos de `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` |
+| Redis      | `REDIS_PORT` (`6379`)    | sem autenticação (uso local de estudo)                                          |
 
 Para interromper os containers:
 
@@ -179,7 +189,7 @@ O `docker-compose.yml` também define um serviço `app`, que builda a aplicaçã
 docker compose up -d --build
 ```
 
-O serviço `app` lê as variáveis de ambiente (`APP_NAME`, `DATABASE_URL`, `JWT_SECRET`, etc.) do `.env` na raiz do projeto e expõe a porta `3000`. O `dockerfile` inclui um `HEALTHCHECK` que bate em `/api/v1/health` (rota exposta por `AppController`).
+O serviço `app` lê as variáveis de ambiente (`APP_NAME`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `JWT_SECRET`, etc.) do `.env` na raiz do projeto — exceto `POSTGRES_HOST`/`POSTGRES_PORT`, que o `docker-compose.yml` já fixa pro serviço `postgree` na porta interna `5432` — e expõe a porta `3000`. O `dockerfile` inclui um `HEALTHCHECK` que bate em `/api/v1/health` (rota exposta por `AppController`).
 
 ## Executando o projeto
 
@@ -250,7 +260,7 @@ Esses fluxos ainda fazem parte do exercício e serão refinados conforme o proje
 
 ## Prisma
 
-O schema fica dividido por domínio em `prisma/schema/` (`user.prisma`, `bank.prisma`, `ledger.prisma`, `balance.prisma`, `session.prisma`), mais `schema.prisma` com o bloco `generator`/`datasource` — o Prisma CLI funde todos os arquivos da pasta automaticamente. Configuração de conexão e caminho do schema fica em `prisma7.config.ts`.
+O schema fica dividido por domínio em `prisma/schema/` (`user.prisma`, `bank.prisma`, `ledger.prisma`, `balance.prisma`, `session.prisma`), mais `schema.prisma` com o bloco `generator`/`datasource` — o Prisma CLI funde todos os arquivos da pasta automaticamente. Configuração de conexão e caminho do schema fica em `prisma7.config.ts`, que monta a connection string a partir das mesmas `POSTGRES_*` vars usadas pelo `PrismaService` em runtime (ver seção Configuração).
 
 ```bash
 # gerar o Prisma Client a partir do schema
@@ -299,6 +309,11 @@ yarn test:e2e
 
 Testes unitários cobrem controllers, services, guards e strategies dos módulos `auth`, `banks` e `clock`, além do decorator `is-tax-id`. Todos os `it` estão em inglês; nomes de `describe` e mensagens de negócio (exceptions, DTOs) seguem em português. O módulo `budget` foi dividido em `budget.service` (facade), `balance.service` e `ledger.service`, todos cobertos; ainda faltam o controller e o `IdempotencyInterceptor`. Testes end-to-end existem pro módulo `banks` (`banks.e2e-spec.ts`); os demais módulos ainda não têm.
 
+## Base de conhecimento e skills (IA)
+
+- `knowledge.md` (raiz): documento de referência sobre o projeto (arquitetura por módulo, padrões de código, convenções de naming, stack técnico, aliases de import etc.) usado como contexto para agentes de IA trabalharem no repositório.
+- `skills/`: diretório de skills reutilizáveis por agentes de IA. Hoje contém `nest-controller-generator.skill.md`, que automatiza a criação de controllers seguindo os padrões descritos em `knowledge.md`. Diretório em início — tende a crescer com novas skills conforme o projeto avança.
+
 ## Próximos passos
 
 - Terminar os testes do módulo `budget` (controller e `IdempotencyInterceptor`) e do `RedisService` — hoje sem cobertura nenhuma.
@@ -306,7 +321,7 @@ Testes unitários cobrem controllers, services, guards e strategies dos módulos
 - Estudar observabilidade e tratamento global de erros.
 - Adicionar um detector de anomalias comportamentais anti-fraude
 - Adicionar um rate limit por segurança
-- Adicionar um conciliador de saldos (real-time) que dispara um alert para o backoffie em caso de discrepância.
+- Adicionar um conciliador de saldos (real-time) que dispara um alert para o backoffice em caso de discrepância.
 
 ## Observação
 

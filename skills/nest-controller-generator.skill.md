@@ -6,7 +6,7 @@ Automatizar a criação de Controllers NestJS seguindo os padrões do projeto.
 
 ## Quando Ativar
 
-Usuario pede:
+Usuário pede:
 
 - "Crie um controller para..."
 - "Gere um controller de..."
@@ -38,7 +38,7 @@ Baseado no conhecimento (knowledge.md), gere:
 ```typescript
 import { Controller, Get, Post, Body, Param, Put, Delete } from '@nestjs/common';
 import { [Dominio]Service } from './[dominio].service';
-import { Create[Dominio]Dto } from './dto/create-[dominio].dto';
+import { Create[Dominio][tipo:Request|Response]Dto } from './dto/create-[dominio]-[tipo: request | response].dto';
 
 @Controller('api/v1/[dominio-plural]')
 export class [DominioCapital]Controller {
@@ -124,7 +124,6 @@ Gere também:
 - [ ] Lógica de negócio no controller (só delegação pro service)
 - [ ] Query raw SQL (sempre usar repository/Prisma)
 - [ ] Erros sem tipo (sempre BadRequestException, NotFoundException, etc)
-- [ ] Endpoints sem versão de API (/api/v1/)
 - [ ] DTOs sem validação
 - [ ] Métodos síncronos
 
@@ -175,12 +174,12 @@ export class NotificationsController {
 }
 ```
 
-### dto/create-notification.dto.ts
+### dto/create-notification-request.dto.ts
 
 ```typescript
 import { IsString, IsNotEmpty, IsOptional, MaxLength } from 'class-validator';
 
-export class CreateNotificationDto {
+export class CreateNotificationRequestDto {
     @IsString()
     @IsNotEmpty()
     @MaxLength(255)

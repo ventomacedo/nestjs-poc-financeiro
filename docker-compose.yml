@@ -11,7 +11,11 @@ services:
         environment:
             - NODE_ENV=production
             - APP_NAME=${APP_NAME}
-            - DATABASE_URL=${DATABASE_URL}
+            - POSTGRES_USER=${POSTGRES_USER}
+            - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+            - POSTGRES_DB=${POSTGRES_DB}
+            - POSTGRES_HOST=postgree
+            - POSTGRES_PORT=5432
             - JWT_SECRET=${JWT_SECRET}
             - REDIS_HOST=${REDIS_HOST}
             - REDIS_PORT=${REDIS_PORT}
@@ -36,11 +40,11 @@ services:
         image: postgres:latest
         container_name: postgree
         environment:
-            POSTGRES_USER: myuser
-            POSTGRES_PASSWORD: mypassword
-            POSTGRES_DB: mydatabase
+            POSTGRES_USER: ${POSTGRES_USER}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+            POSTGRES_DB: ${POSTGRES_DB}
         ports:
-            - '5432:5432'
+            - '${POSTGRES_PORT}:5432'
         networks:
             - app-network
         # healthcheck:
@@ -53,7 +57,7 @@ services:
         image: redis:7-alpine
         container_name: redis
         ports:
-            - '6379:6379'
+            - '${REDIS_PORT}:6379'
         networks:
             - app-network
 

@@ -32,5 +32,5 @@
         "noFallthroughCasesInSwitch": false,
         "types": ["jest", "node"]
     },
-    "include": ["src/**/*", "tests/**/*", "test/**/*"]
+    "include": ["src/**/*", "tests/**/*", "test/**/*", "prisma7.config.ts"]
 }
