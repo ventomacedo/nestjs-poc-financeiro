@@ -20,4 +20,4 @@ import { PrismaLedgerRepository } from './repository/prisma-ledger.repository';
     ],
     exports: [],
 })
-export class BudgetModules {}
+export class BudgetModule {}

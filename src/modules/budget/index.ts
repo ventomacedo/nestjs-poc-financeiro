@@ -1,1 +1,1 @@
-export { BudgetModules } from './budget.module';
+export { BudgetModule } from './budget.module';
