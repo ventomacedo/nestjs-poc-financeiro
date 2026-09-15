@@ -16,6 +16,7 @@ O projeto ainda está em construção. O código, as escolhas técnicas e a docu
 - Usar Prisma ORM (schema, migrations e Prisma Client) para acesso a dados.
 - Estudar idempotência em operações financeiras (módulo `budget`, com `Ledger`/`Balance` versionado e lock de idempotência via Redis) e experimentar entrega de eventos via SSE com padrão outbox (poll em `Ledger` + cursor `publishedAt`) — em andamento.
 - Implementar sessão/logout com revogação de token (tabela `Session`, vinculada ao usuário e ao JWT emitido).
+- Experimentar full-text search nativo do PostgreSQL (módulo `products`): coluna `tsvector` gerada por trigger a partir de `name`/`description`, índice `GIN` e busca via `websearch_to_tsquery` + `ts_rank`, com `$queryRaw` do Prisma (coluna `Unsupported("tsvector")` no schema).
 - Praticar hashing de senha com pepper (`argon2id`) e criptografia simétrica reversível (AES-256-GCM) pro segredo 2FA, que precisa ser recuperado em texto puro pra validar o TOTP.
 - Recuperar familiaridade com testes, configuração e execução de aplicações backend.
 
@@ -27,7 +28,7 @@ O projeto ainda está em construção. O código, as escolhas técnicas e a docu
 - PostgreSQL
 - Redis (suporte ao estudo de idempotência)
 - Docker e Docker Compose
-- Prisma ORM (`@prisma/client`, driver adapter `@prisma/adapter-pg`)
+- Prisma ORM (`@prisma/client`, driver adapter `@prisma/adapter-pg`), incluindo o preview feature `fullTextSearchPostgres` e tipo `Unsupported("tsvector")` pra busca full-text nativa do Postgres
 - JSON Web Token (JWT) e Passport
 - Hash de senha com `argon2` (argon2id) + pepper
 - Autenticação de dois fatores (TOTP) com `otplib` e QR Code (`qrcode`), segredo criptografado em repouso (AES-256-GCM)
@@ -63,17 +64,25 @@ src/
 │   │   ├── clock.module.ts
 │   │   ├── clock.service.ts
 │   │   └── index.ts
-│   └── budget/
+│   ├── budget/
+│   │   ├── dto/
+│   │   ├── types/
+│   │   ├── repository/   # interfaces + implementação Prisma (balance, ledger)
+│   │   ├── tests/
+│   │   ├── budget.controller.ts
+│   │   ├── budget.service.ts   # facade: delega pra balance.service / ledger.service
+│   │   ├── balance.service.ts
+│   │   ├── ledger.service.ts
+│   │   ├── idempotency.interceptor.ts   # interceptor de idempotência (Redis)
+│   │   ├── budget.module.ts
+│   │   └── index.ts
+│   └── products/
 │       ├── dto/
-│       ├── types/
-│       ├── repository/   # interfaces + implementação Prisma (balance, ledger)
+│       ├── repository/   # interface + implementação Prisma, inclui full-text search via $queryRaw
 │       ├── tests/
-│       ├── budget.controller.ts
-│       ├── budget.service.ts   # facade: delega pra balance.service / ledger.service
-│       ├── balance.service.ts
-│       ├── ledger.service.ts
-│       ├── idempotency.interceptor.ts   # interceptor de idempotência (Redis)
-│       ├── budget.module.ts
+│       ├── products.controller.ts
+│       ├── products.service.ts
+│       ├── products.module.ts
 │       └── index.ts
 ├── database/
 │   ├── database.module.ts
@@ -107,10 +116,12 @@ prisma/
 │   ├── bank.prisma
 │   ├── ledger.prisma
 │   ├── balance.prisma
-│   └── session.prisma
+│   ├── session.prisma
+│   └── products.prisma   # coluna Unsupported("tsvector") + índice Gin pro full-text search
 ├── migrations/
 ├── seeds/
-│   └── banks.seed.sql   # principais instituições financeiras do Brasil
+│   ├── banks.seed.sql   # principais instituições financeiras do Brasil
+│   └── products.seed.ts   # gera ~2000 produtos (jogos retro) combinando título x condição x região x edição
 └── seed.ts   # runner do seed (`npx prisma db seed`)
 
 test/
@@ -261,6 +272,15 @@ O módulo `budget` (prefixo `/api/v1/budget`) é o experimento de idempotência 
 | `POST` | `/budget/confirm`        | Bearer `accessToken` | Confirma (efetiva) uma reserva como saque                                                                                                                                                                                                                                                                           |
 | `GET`  | `/budget/balance/stream` | Bearer `accessToken` | SSE com padrão outbox: faz poll em `Ledger` a cada 5s filtrando por `userId` e `publishedAt: null`, marca as linhas encontradas como publicadas e emite o `Balance` atual daquele usuário. `Ledger` funciona como fila (cursor `publishedAt`, at-least-once); `distinctUntilChanged` evita reemitir o mesmo estado. |
 
+As rotas de produtos usam o prefixo `/api/v1/products` e exigem `accessToken` (Bearer).
+
+| Método | Rota              | Autenticação         | Finalidade                                                                                           |
+| ------ | ----------------- | --------------------- | ----------------------------------------------------------------------------------------------------- |
+| `GET`  | `/products`        | Bearer `accessToken` | Lista todos os produtos                                                                                |
+| `GET`  | `/products/search` | Bearer `accessToken` | Busca full-text por `terms` (query param), usando `websearch_to_tsquery` + `ts_rank` contra a coluna `searchVector` |
+
+A coluna `searchVector` (`tsvector`, `Unsupported` no `schema.prisma`) é mantida por uma trigger de banco (`product_tsvector_update_trigger`, ver seção Prisma) que recalcula o vetor a partir de `name` (peso `A`) e `description` (peso `B`) a cada `INSERT`/`UPDATE`. A busca roda via `$queryRaw` (Prisma não modela full-text search declarativamente) selecionando colunas explícitas — `SELECT *` quebraria a deserialização, já que o driver não sabe converter o tipo `tsvector`.
+
 A documentação interativa (Swagger) fica disponível em `/docs` com a aplicação em execução.
 
 Esses fluxos ainda fazem parte do exercício e serão refinados conforme o projeto avançar.
@@ -297,6 +317,8 @@ npx prisma db seed
 ```
 
 Popula a tabela `banks` com as principais instituições financeiras do Brasil (`prisma/seeds/banks.seed.sql`, executado por `prisma/seed.ts` via `pg`). Idempotente (`WHERE NOT EXISTS` por `tax_id`, já que a tabela não tem constraint de unicidade nessa coluna) — pode rodar mais de uma vez sem duplicar. O comando também dispara automaticamente depois de `npx prisma migrate dev`. ISPB/CNPJ/COMPE dessa seed valem como dado de estudo; confira contra a lista oficial do Bacen antes de usar em produção.
+
+Também popula a tabela `products` com ~2000 produtos fictícios (jogos retro, nomes e descrições em português) — `prisma/seeds/products.seed.ts`, gerado programaticamente combinando 51 jogos clássicos (NES, SNES, Mega Drive, Master System, Atari 2600, Game Boy, PlayStation, Nintendo 64) com condição, região e edição, e inserido em lotes via `pg`. Não é idempotente: `products` não tem chave natural única, então rodar o seed de novo duplica os registros.
 
 ## Testes
 
