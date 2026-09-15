@@ -17,6 +17,7 @@ O projeto ainda está em construção. O código, as escolhas técnicas e a docu
 - Estudar idempotência em operações financeiras (módulo `budget`, com `Ledger`/`Balance` versionado e lock de idempotência via Redis) e experimentar entrega de eventos via SSE com padrão outbox (poll em `Ledger` + cursor `publishedAt`) — em andamento.
 - Implementar sessão/logout com revogação de token (tabela `Session`, vinculada ao usuário e ao JWT emitido).
 - Experimentar full-text search nativo do PostgreSQL (módulo `products`): coluna `tsvector` gerada por trigger a partir de `name`/`description`, índice `GIN` e busca via `websearch_to_tsquery` + `ts_rank`, com `$queryRaw` do Prisma (coluna `Unsupported("tsvector")` no schema).
+- Praticar CRUD completo com paginação por cursor (módulo `products`): listagem e busca full-text paginadas por cursor opaco em base64 (`id` na listagem; `rank,id` combinados na busca), `slug` único como identificador amigável, e soft delete via extensão do `PrismaService`.
 - Praticar hashing de senha com pepper (`argon2id`) e criptografia simétrica reversível (AES-256-GCM) pro segredo 2FA, que precisa ser recuperado em texto puro pra validar o TOTP.
 - Recuperar familiaridade com testes, configuração e execução de aplicações backend.
 
@@ -272,12 +273,18 @@ O módulo `budget` (prefixo `/api/v1/budget`) é o experimento de idempotência 
 | `POST` | `/budget/confirm`        | Bearer `accessToken` | Confirma (efetiva) uma reserva como saque                                                                                                                                                                                                                                                                           |
 | `GET`  | `/budget/balance/stream` | Bearer `accessToken` | SSE com padrão outbox: faz poll em `Ledger` a cada 5s filtrando por `userId` e `publishedAt: null`, marca as linhas encontradas como publicadas e emite o `Balance` atual daquele usuário. `Ledger` funciona como fila (cursor `publishedAt`, at-least-once); `distinctUntilChanged` evita reemitir o mesmo estado. |
 
-As rotas de produtos usam o prefixo `/api/v1/products` e exigem `accessToken` (Bearer).
+As rotas de produtos usam o prefixo `/api/v1/products` e exigem `accessToken` (Bearer). `GET /products` e `GET /products/search` recebem os parâmetros via `@Body()` (não query string).
 
-| Método | Rota              | Autenticação         | Finalidade                                                                                           |
-| ------ | ----------------- | --------------------- | ----------------------------------------------------------------------------------------------------- |
-| `GET`  | `/products`        | Bearer `accessToken` | Lista todos os produtos                                                                                |
-| `GET`  | `/products/search` | Bearer `accessToken` | Busca full-text por `terms` (query param), usando `websearch_to_tsquery` + `ts_rank` contra a coluna `searchVector` |
+| Método   | Rota                | Autenticação         | Finalidade                                                                                                                   |
+| -------- | ------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/products`         | Bearer `accessToken` | Lista produtos com paginação por cursor: `pageSize` (default `10`) e `pageToken` (opcionais, no corpo da requisição)         |
+| `GET`    | `/products/search`  | Bearer `accessToken` | Busca full-text por `terms` (corpo da requisição), paginada por cursor, usando `websearch_to_tsquery` + `ts_rank` contra a coluna `searchVector` |
+| `GET`    | `/products/:slug`   | Bearer `accessToken` | Busca produto pelo `slug` (identificador único e amigável)                                                                   |
+| `POST`   | `/products`         | Bearer `accessToken` | Cria produto. `slug` é opcional no corpo — se omitido, é gerado a partir de `name` (`slugfy`)                                |
+| `PUT`    | `/products/:id`     | Bearer `accessToken` | Atualiza produto                                                                                                              |
+| `DELETE` | `/products/:id`     | Bearer `accessToken` | Remove produto — soft delete (marca `deletedAt`, não apaga a linha; mesma extensão do `PrismaService` usada no resto do projeto) |
+
+A listagem usa paginação por cursor: `pageToken` é o `id` do último item da página anterior, codificado em base64. Quando a página retornada tem exatamente `pageSize` itens, a resposta inclui um novo `pageToken` (base64 do `id` do último registro); do contrário `pageToken` vem `null`, indicando fim da listagem. A busca (`/products/search`) segue a mesma lógica, mas o cursor combina `rank,id` (posição no ranking de relevância + desempate por `id`), já que a ordenação é por `ts_rank` e não por `id`.
 
 A coluna `searchVector` (`tsvector`, `Unsupported` no `schema.prisma`) é mantida por uma trigger de banco (`product_tsvector_update_trigger`, ver seção Prisma) que recalcula o vetor a partir de `name` (peso `A`) e `description` (peso `B`) a cada `INSERT`/`UPDATE`. A busca roda via `$queryRaw` (Prisma não modela full-text search declarativamente) selecionando colunas explícitas — `SELECT *` quebraria a deserialização, já que o driver não sabe converter o tipo `tsvector`.
 
@@ -287,7 +294,9 @@ Esses fluxos ainda fazem parte do exercício e serão refinados conforme o proje
 
 ## Prisma
 
-O schema fica dividido por domínio em `prisma/schema/` (`user.prisma`, `bank.prisma`, `ledger.prisma`, `balance.prisma`, `session.prisma`), mais `schema.prisma` com o bloco `generator`/`datasource` — o Prisma CLI funde todos os arquivos da pasta automaticamente. Configuração de conexão e caminho do schema fica em `prisma7.config.ts`, que monta a connection string a partir das mesmas `POSTGRES_*` vars usadas pelo `PrismaService` em runtime (ver seção Configuração).
+O schema fica dividido por domínio em `prisma/schema/` (`user.prisma`, `bank.prisma`, `ledger.prisma`, `balance.prisma`, `session.prisma`, `products.prisma`), mais `schema.prisma` com o bloco `generator`/`datasource` — o Prisma CLI funde todos os arquivos da pasta automaticamente. Configuração de conexão e caminho do schema fica em `prisma7.config.ts`, que monta a connection string a partir das mesmas `POSTGRES_*` vars usadas pelo `PrismaService` em runtime (ver seção Configuração).
+
+O model `Products` tem `slug` com constraint `@unique` (identificador amigável, alternativo ao `id`) e `createdAt` com `@default(now())` — diferença em relação à maioria dos outros models do projeto, que preenchem `createdAt` manualmente na aplicação.
 
 ```bash
 # gerar o Prisma Client a partir do schema
@@ -318,7 +327,7 @@ npx prisma db seed
 
 Popula a tabela `banks` com as principais instituições financeiras do Brasil (`prisma/seeds/banks.seed.sql`, executado por `prisma/seed.ts` via `pg`). Idempotente (`WHERE NOT EXISTS` por `tax_id`, já que a tabela não tem constraint de unicidade nessa coluna) — pode rodar mais de uma vez sem duplicar. O comando também dispara automaticamente depois de `npx prisma migrate dev`. ISPB/CNPJ/COMPE dessa seed valem como dado de estudo; confira contra a lista oficial do Bacen antes de usar em produção.
 
-Também popula a tabela `products` com ~2000 produtos fictícios (jogos retro, nomes e descrições em português) — `prisma/seeds/products.seed.ts`, gerado programaticamente combinando 51 jogos clássicos (NES, SNES, Mega Drive, Master System, Atari 2600, Game Boy, PlayStation, Nintendo 64) com condição, região e edição, e inserido em lotes via `pg`. Não é idempotente: `products` não tem chave natural única, então rodar o seed de novo duplica os registros.
+Também popula a tabela `products` com 2040 produtos fictícios (jogos retro, nomes e descrições em português) — `prisma/seeds/products.seed.ts`, gerado programaticamente combinando 51 jogos clássicos (NES, SNES, Mega Drive, Master System, Atari 2600, Game Boy, PlayStation, Nintendo 64) com condição, região e edição (5 × 4 × 2 = 40 variações por jogo), e inserido em lotes via `pg`. `name`/`slug` incorporam as quatro dimensões (jogo, condição, edição, região), garantindo unicidade nas 2040 combinações — necessário porque `slug` tem constraint `@unique` no schema. Não é idempotente: rodar o seed de novo tenta reinserir os mesmos `slug`s e falha por violação de unicidade; truncar a tabela antes (`TRUNCATE TABLE products;`) se precisar popular de novo.
 
 ## Testes
 

@@ -1,5 +1,5 @@
-import { LedgerType } from '@prisma';
 import { Transform } from 'class-transformer';
+import { LedgerType } from '../repository/prisma-ledger.repository';
 
 const typeMapping = {
     CREDITED: 'Creditado',

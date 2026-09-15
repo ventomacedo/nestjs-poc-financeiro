@@ -5,8 +5,8 @@ export class FindProductsRequestDto {
     @IsString({ message: 'paginationToken precisa ser uma string' })
     @IsOptional()
     @ApiProperty({
-        example: '????',
-        description: 'Token de paginação da listagem de produtos',
+        example: 'MDFhMGE1OWYtNWIyNC03ZGUxLTg1MzItMDBlMzExZDIyYjJh',
+        description: 'Token de paginação vinda da página anterior',
     })
     pageToken!: string;
 

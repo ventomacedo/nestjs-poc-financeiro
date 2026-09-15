@@ -5,6 +5,7 @@ import {
 } from './ledger.repository.interface';
 import { TAppendLedger } from '../types/ledger';
 import { Injectable } from '@nestjs/common';
+import { LedgerType as LedgerTypeEnum } from '@prisma';
 
 @Injectable()
 export class PrismaLedgerRepository implements ILedgerRepositoryInterface {
@@ -55,3 +56,5 @@ export class PrismaLedgerRepository implements ILedgerRepositoryInterface {
         });
     }
 }
+
+export type LedgerType = LedgerTypeEnum;
