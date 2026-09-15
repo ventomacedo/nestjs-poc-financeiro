@@ -4,7 +4,7 @@ export type Products = ProductsType;
 export const PRODUCTS_REPOSITORY = Symbol('PRODUCTS_REPOSITORY');
 
 export interface IProductsInterface {
-    find(): Promise<Products[]>;
+    find(take: number, cursorId: string | undefined): Promise<Products[]>;
     findById(productId: string): Promise<Products | null>;
     findByName(name: string): Promise<Products[]>;
     search(terms: string): Promise<Products[]>;

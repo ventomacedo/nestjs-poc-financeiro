@@ -12,8 +12,23 @@ export class ProductsService {
         private readonly products: IProductsInterface,
     ) {}
 
-    public async find(): Promise<Products[]> {
-        return await this.products.find();
+    public async find(limit: number, pageToken?: string): Promise<any> {
+        const cursorId = !!pageToken
+            ? Buffer.from(pageToken, 'base64').toString('ascii')
+            : undefined;
+
+        const data = await this.products.find(limit, cursorId);
+
+        let nextPageToken: string | null = null;
+
+        if (data.length === limit) {
+            const lastItem = data.at(-1);
+            nextPageToken = !!lastItem
+                ? Buffer.from(lastItem.id).toString('base64')
+                : null;
+        }
+
+        return { data, pageToken: nextPageToken };
     }
 
     public async findById(id: string): Promise<Products | null> {

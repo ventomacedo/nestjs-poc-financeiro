@@ -6,8 +6,13 @@ import { Injectable } from '@nestjs/common';
 export class PrismaProductsRepository implements IProductsInterface {
     constructor(private readonly db: PrismaService) {}
 
-    public async find(): Promise<Products[]> {
-        return await this.db.products.findMany();
+    public async find(take: number, cursorId: string): Promise<Products[]> {
+        return await this.db.products.findMany({
+            take: take,
+            skip: cursorId ? 1 : 0,
+            cursor: cursorId ? { id: cursorId } : undefined,
+            orderBy: { id: 'asc' },
+        });
     }
 
     public async findById(productId: any): Promise<Products | null> {
