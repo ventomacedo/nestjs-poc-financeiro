@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import Module from 'node:module';
 
 const { compilerOptions } = JSON.parse(
-    readFileSync(join(__dirname, '../tsconfig.json'), 'utf-8'),
+    readFileSync(join(process.cwd(), 'tsconfig.json'), 'utf-8'),
 );
 
 register({

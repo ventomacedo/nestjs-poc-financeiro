@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
     type IProductsInterface,
     PRODUCTS_REPOSITORY,
@@ -16,6 +16,8 @@ import { UpdateProductsRequestDto } from './dto/update-products-request.dto';
 
 @Injectable()
 export class ProductsService {
+    // private logger = new Logger(ProductsService.name);
+
     constructor(
         @Inject(PRODUCTS_REPOSITORY)
         private readonly products: IProductsInterface,
@@ -44,6 +46,7 @@ export class ProductsService {
                 : null;
         }
 
+        // this.logger.debug({ message: `new pageToke: ${nextPageToken}` });
         return { data, pageToken: nextPageToken };
     }
 

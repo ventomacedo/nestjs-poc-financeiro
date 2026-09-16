@@ -8,6 +8,7 @@
             "name": "Debug Playground Nest",
             "request": "launch",
             "args": ["${workspaceFolder}/src/main.ts"],
+            "runtimeExecutable": "yarn",
             "runtimeArgs": [
                 "--nolazy",
                 "-r",
