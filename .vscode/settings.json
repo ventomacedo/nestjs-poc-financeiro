@@ -4,5 +4,6 @@
     "editor.fontFamily": "Fira code",
     "editor.formatOnSave": true,
     "editor.insertSpaces": true,
-    "editor.codeActionsOnSave": { "source.fixAll": "explicit" }
+    "editor.codeActionsOnSave": { "source.fixAll": "explicit" },
+    "material-icon-theme.activeIconPack": "nest"
 }

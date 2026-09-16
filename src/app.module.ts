@@ -10,6 +10,8 @@ import { ClockModule } from '@clock';
 import { BudgetModule } from './modules/budget/budget.module';
 import { RedisModule } from './shared/redis/redis.module';
 import { ProductModule } from 'modules/products';
+import { CartModule } from './modules/cart/cart.module';
+
 @Module({
     imports: [
         ConfigModule.forRoot({
@@ -22,6 +24,7 @@ import { ProductModule } from 'modules/products';
         BudgetModule,
         RedisModule,
         ProductModule,
+        CartModule,
     ],
     controllers: [AppController],
     providers: [AppService],
