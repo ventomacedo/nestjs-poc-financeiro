@@ -4,14 +4,26 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-
         {
-            "name": "Launch Firefox",
-            "type": "firefox",
+            "name": "Debug Playground Nest",
             "request": "launch",
-            "reAttach": true,
-            "url": "http://localhost:3000",
-            "webRoot": "${workspaceFolder}"
-        },
+            "args": ["${workspaceFolder}/src/main.ts"],
+            "runtimeArgs": [
+                "--nolazy",
+                "-r",
+                "ts-node/register",
+                "-r",
+                "tsconfig-paths/register"
+            ],
+            "sourceMaps": true,
+            "envFile": "${workspaceFolder}/.env",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "TS_NODE_PROJECT": "${workspaceFolder}/tsconfig.json"
+            },
+            "console": "integratedTerminal",
+            "protocol": "inspector",
+            "type": "node"
+        }
     ]
 }

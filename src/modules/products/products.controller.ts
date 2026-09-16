@@ -16,7 +16,6 @@ import { SearchProductsResponseDto } from './dto/search-products-response.dto';
 import { FindProductsResponseDto } from './dto/find-products-response.dto';
 import { CreateProductsRequestDto } from './dto/create-products-request.dto';
 import { UpdateProductsRequestDto } from './dto/update-products-request.dto';
-import { Products } from '@prisma';
 
 @Controller('/products')
 export class ProductsController {
