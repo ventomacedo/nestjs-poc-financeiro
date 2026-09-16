@@ -233,6 +233,30 @@ yarn start:prod
 
 A aplicação é iniciada, por padrão, na porta `3000`. Essa porta pode ser alterada pela variável `PORT`.
 
+## Debug
+
+### VSCode (breakpoints)
+
+O `.vscode/launch.json` traz a configuração "Debug Playground Nest": sobe `src/main.ts` via `ts-node` (`-r ts-node/register -r tsconfig-paths/register`), sem precisar compilar antes, com `sourceMaps` habilitado — dá pra colocar breakpoint direto no `.ts`. Os aliases de import (`@auth`, `@prisma`, etc.) são resolvidos tanto em runtime (via `tsconfig-paths`, com fallback pra imports relativos `.js`→`.ts` do client do Prisma) quanto na leitura do `tsconfig.json` em si — o caminho do `tsconfig.json` é lido a partir de `process.cwd()` (não de `__dirname`), pra não depender da estrutura de pastas gerada pelo build.
+
+Basta abrir a aba "Run and Debug" do VSCode e rodar "Debug Playground Nest".
+
+### REPL
+
+```bash
+yarn debug
+```
+
+Roda `nest start --watch --entryFile debug`, que usa `src/debug.ts` (chama `repl(AppModule)` do `@nestjs/core`) como entrypoint em vez de `main.ts`. Abre um REPL Node interativo com todo o grafo de dependências da aplicação já carregado, sem subir o servidor HTTP.
+
+Vantagens, de forma resumida:
+
+- Testa lógica de service/repository isolada, sem passar por controller, guard ou pipe de validação;
+- Inspeciona o retorno de uma chamada na hora, sem precisar espalhar `console.log` pelo código;
+- Mantém hot-reload (`--watch`) — mudança no código reflete no REPL sem reiniciar manualmente.
+
+Dentro do REPL, `get(NomeDaClasse)` retorna a instância do provider resolvida pelo Nest (ex.: `get(ProductsService)`) e `methods(NomeDaClasse)` lista os métodos públicos disponíveis.
+
 ## Rotas atuais
 
 As rotas de autenticação usam o prefixo `/api/v1/auth`. O fluxo de login é feito em duas etapas: `signin` retorna um token temporário (`twoFactorAuthToken`), que deve ser enviado como Bearer token nas rotas de 2FA.
