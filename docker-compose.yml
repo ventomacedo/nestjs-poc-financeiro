@@ -11,20 +11,30 @@ services:
         environment:
             - NODE_ENV=production
             - APP_NAME=${APP_NAME}
+
             - POSTGRES_USER=${POSTGRES_USER}
             - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
             - POSTGRES_DB=${POSTGRES_DB}
-            - POSTGRES_HOST=postgree
-            - POSTGRES_PORT=5432
-            - JWT_SECRET=${JWT_SECRET}
+            - POSTGRES_HOST=${POSTGRES_HOST}
+            - POSTGRES_PORT=${POSTGRES_PORT}
+
+            - MONGO_DB=${MONGO_DB}
+            - MONGO_USERNAME=${MONGO_USERNAME}
+            - MONGO_PASSWORD=${MONGO_PASSWORD}
+            - MONGO_HOST=${MONGO_HOST}
+            - MONGO_PORT=${MONGO_PORT}
+
             - REDIS_HOST=${REDIS_HOST}
             - REDIS_PORT=${REDIS_PORT}
+
+            - JWT_SECRET=${JWT_SECRET}
             - TWO_FACTOR_SECRET_KEY=${TWO_FACTOR_SECRET_KEY}
             - PEPPER_SECRET=${PEPPER_SECRET}
             - LOG_LEVEL=info
         depends_on:
             - postgree
             - redis
+            - mongoDB
         networks:
             - app-network
         # deploy:

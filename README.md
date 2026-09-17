@@ -19,6 +19,7 @@ O projeto ainda está em construção. O código, as escolhas técnicas e a docu
 - Experimentar full-text search nativo do PostgreSQL (módulo `products`): coluna `tsvector` gerada por trigger a partir de `name`/`description`, índice `GIN` e busca via `websearch_to_tsquery` + `ts_rank`, com `$queryRaw` do Prisma (coluna `Unsupported("tsvector")` no schema).
 - Praticar CRUD completo com paginação por cursor (módulo `products`): listagem e busca full-text paginadas por cursor opaco em base64 (`id` na listagem; `rank,id` combinados na busca), `slug` único como identificador amigável, e soft delete via extensão do `PrismaService`.
 - Praticar hashing de senha com pepper (`argon2id`) e criptografia simétrica reversível (AES-256-GCM) pro segredo 2FA, que precisa ser recuperado em texto puro pra validar o TOTP.
+- Persistir dados com MongoDB via Mongoose (módulo `cart`): schema com `_id` UUIDv7 (`uuidv7`), índice TTL pra expirar carrinhos inativos automaticamente, e agregação de itens (soma de quantidade por `productId` duplicado + cálculo do total) feita em memória no service via `reduce`.
 - Recuperar familiaridade com testes, configuração e execução de aplicações backend.
 
 ## Tecnologias
@@ -27,7 +28,8 @@ O projeto ainda está em construção. O código, as escolhas técnicas e a docu
 - TypeScript
 - NestJS
 - PostgreSQL
-- Redis (suporte ao estudo de idempotência)
+- Redis (suporte ao estudo de idempotência), via cliente `ioredis`
+- MongoDB com Mongoose (`mongoose` + `@nestjs/mongoose`) — carrinho de compras (módulo `cart`)
 - Docker e Docker Compose
 - Prisma ORM (`@prisma/client`, driver adapter `@prisma/adapter-pg`), incluindo o preview feature `fullTextSearchPostgres` e tipo `Unsupported("tsvector")` pra busca full-text nativa do Postgres
 - JSON Web Token (JWT) e Passport
@@ -77,18 +79,30 @@ src/
 │   │   ├── idempotency.interceptor.ts   # interceptor de idempotência (Redis)
 │   │   ├── budget.module.ts
 │   │   └── index.ts
-│   └── products/
+│   ├── products/
+│   │   ├── dto/
+│   │   ├── repository/   # interface + implementação Prisma, inclui full-text search via $queryRaw
+│   │   ├── tests/
+│   │   ├── products.controller.ts
+│   │   ├── products.service.ts
+│   │   ├── products.module.ts
+│   │   └── index.ts
+│   └── cart/
 │       ├── dto/
-│       ├── repository/   # interface + implementação Prisma, inclui full-text search via $queryRaw
-│       ├── tests/
-│       ├── products.controller.ts
-│       ├── products.service.ts
-│       ├── products.module.ts
-│       └── index.ts
+│       ├── repository/   # interface + implementação Mongoose (Cart)
+│       ├── cart.controller.ts
+│       ├── cart.service.ts
+│       └── cart.module.ts
 ├── database/
-│   ├── database.module.ts
-│   ├── prisma.service.ts
-│   └── index.ts
+│   ├── index.ts   # barrel: reexporta Postgres (Prisma) e MongoDB (Mongoose)
+│   ├── mongodb/
+│   │   ├── mongo.module.ts
+│   │   ├── mongo.service.ts
+│   │   └── schemas/   # schemas Mongoose (ex.: cart.schema.ts)
+│   └── postgresql/
+│       ├── database.module.ts
+│       ├── prisma.service.ts
+│       └── index.ts
 ├── shared/
 │   ├── decorators/
 │   │   ├── is-tax-id.decorator.ts
@@ -170,6 +184,12 @@ POSTGRES_PORT=porta-do-banco
 REDIS_HOST=host-do-redis
 REDIS_PORT=porta-do-redis
 
+MONGO_DB=nome-do-banco-mongo
+MONGO_USERNAME=usuario-do-mongo
+MONGO_PASSWORD=senha-do-mongo
+MONGO_HOST=host-do-mongo
+MONGO_PORT=porta-do-mongo
+
 JWT_SECRET=uma-chave-secreta-para-desenvolvimento
 TWO_FACTOR_SECRET_KEY=uma-chave-de-32-bytes-para-criptografar-o-segredo-2fa
 PEPPER_SECRET=um-pepper-concatenado-a-senha-antes-do-hash
@@ -183,16 +203,17 @@ O arquivo `.env` não deve ser versionado. Para ambientes reais, use uma chave J
 
 ## Banco de dados
 
-Suba PostgreSQL e Redis com Docker Compose:
+Suba PostgreSQL, Redis e MongoDB com Docker Compose:
 
 ```bash
 docker compose up -d
 ```
 
-| Serviço    | Porta                    | Configuração                                                                    |
-| ---------- | ------------------------ | ------------------------------------------------------------------------------- |
-| PostgreSQL | `POSTGRES_PORT` (`5432`) | usuário/senha/banco vindos de `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` |
-| Redis      | `REDIS_PORT` (`6379`)    | sem autenticação (uso local de estudo)                                          |
+| Serviço    | Porta                    | Configuração                                                                           |
+| ---------- | ------------------------ | -------------------------------------------------------------------------------------- |
+| PostgreSQL | `POSTGRES_PORT` (`5432`) | usuário/senha/banco vindos de `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB`        |
+| Redis      | `REDIS_PORT` (`6379`)    | sem autenticação (uso local de estudo)                                                 |
+| MongoDB    | `MONGO_PORT` (`27017`)   | usuário/senha root vindos de `MONGO_USERNAME`/`MONGO_PASSWORD` (`MONGO_INITDB_ROOT_*`) |
 
 Para interromper os containers:
 
@@ -202,7 +223,7 @@ docker compose down
 
 ## Docker (aplicação)
 
-O `docker-compose.yml` também define um serviço `app`, que builda a aplicação a partir do `dockerfile` (multi-stage: build + imagem final rodando como usuário não-root) e sobe junto com PostgreSQL e Redis:
+O `docker-compose.yml` também define um serviço `app`, que builda a aplicação a partir do `dockerfile` (multi-stage: build + imagem final rodando como usuário não-root) e sobe junto com PostgreSQL, Redis e MongoDB:
 
 ```bash
 docker compose up -d --build
@@ -247,7 +268,7 @@ Basta abrir a aba "Run and Debug" do VSCode e rodar "Debug Playground Nest".
 yarn debug
 ```
 
-Roda `nest start --watch --entryFile debug`, que usa `src/debug.ts` (chama `repl(AppModule)` do `@nestjs/core`) como entrypoint em vez de `main.ts`. Abre um REPL Node interativo com todo o grafo de dependências da aplicação já carregado, sem subir o servidor HTTP.
+Roda `nest start --watch --entryFile repl.debug`, que usa `src/repl.debug.ts` (chama `repl(AppModule)` do `@nestjs/core`) como entrypoint em vez de `main.ts`. Abre um REPL Node interativo com todo o grafo de dependências da aplicação já carregado, sem subir o servidor HTTP.
 
 Vantagens, de forma resumida:
 
@@ -299,18 +320,27 @@ O módulo `budget` (prefixo `/api/v1/budget`) é o experimento de idempotência 
 
 As rotas de produtos usam o prefixo `/api/v1/products` e exigem `accessToken` (Bearer). `GET /products` e `GET /products/search` recebem os parâmetros via `@Body()` (não query string).
 
-| Método   | Rota                | Autenticação         | Finalidade                                                                                                                   |
-| -------- | ------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `GET`    | `/products`         | Bearer `accessToken` | Lista produtos com paginação por cursor: `pageSize` (default `10`) e `pageToken` (opcionais, no corpo da requisição)         |
-| `GET`    | `/products/search`  | Bearer `accessToken` | Busca full-text por `terms` (corpo da requisição), paginada por cursor, usando `websearch_to_tsquery` + `ts_rank` contra a coluna `searchVector` |
-| `GET`    | `/products/:slug`   | Bearer `accessToken` | Busca produto pelo `slug` (identificador único e amigável)                                                                   |
-| `POST`   | `/products`         | Bearer `accessToken` | Cria produto. `slug` é opcional no corpo — se omitido, é gerado a partir de `name` (`slugfy`)                                |
-| `PUT`    | `/products/:id`     | Bearer `accessToken` | Atualiza produto                                                                                                              |
-| `DELETE` | `/products/:id`     | Bearer `accessToken` | Remove produto — soft delete (marca `deletedAt`, não apaga a linha; mesma extensão do `PrismaService` usada no resto do projeto) |
+| Método   | Rota               | Autenticação         | Finalidade                                                                                                                                       |
+| -------- | ------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET`    | `/products`        | Bearer `accessToken` | Lista produtos com paginação por cursor: `pageSize` (default `10`) e `pageToken` (opcionais, no corpo da requisição)                             |
+| `GET`    | `/products/search` | Bearer `accessToken` | Busca full-text por `terms` (corpo da requisição), paginada por cursor, usando `websearch_to_tsquery` + `ts_rank` contra a coluna `searchVector` |
+| `GET`    | `/products/:slug`  | Bearer `accessToken` | Busca produto pelo `slug` (identificador único e amigável)                                                                                       |
+| `POST`   | `/products`        | Bearer `accessToken` | Cria produto. `slug` é opcional no corpo — se omitido, é gerado a partir de `name` (`slugfy`)                                                    |
+| `PUT`    | `/products/:id`    | Bearer `accessToken` | Atualiza produto                                                                                                                                 |
+| `DELETE` | `/products/:id`    | Bearer `accessToken` | Remove produto — soft delete (marca `deletedAt`, não apaga a linha; mesma extensão do `PrismaService` usada no resto do projeto)                 |
 
 A listagem usa paginação por cursor: `pageToken` é o `id` do último item da página anterior, codificado em base64. Quando a página retornada tem exatamente `pageSize` itens, a resposta inclui um novo `pageToken` (base64 do `id` do último registro); do contrário `pageToken` vem `null`, indicando fim da listagem. A busca (`/products/search`) segue a mesma lógica, mas o cursor combina `rank,id` (posição no ranking de relevância + desempate por `id`), já que a ordenação é por `ts_rank` e não por `id`.
 
 A coluna `searchVector` (`tsvector`, `Unsupported` no `schema.prisma`) é mantida por uma trigger de banco (`product_tsvector_update_trigger`, ver seção Prisma) que recalcula o vetor a partir de `name` (peso `A`) e `description` (peso `B`) a cada `INSERT`/`UPDATE`. A busca roda via `$queryRaw` (Prisma não modela full-text search declarativamente) selecionando colunas explícitas — `SELECT *` quebraria a deserialização, já que o driver não sabe converter o tipo `tsvector`.
+
+As rotas de carrinho usam o prefixo `/api/v1/cart` e exigem `accessToken` (Bearer). Carrinho é persistido no MongoDB (módulo `cart`), com `_id` UUIDv7 e expiração automática por inatividade (índice TTL).
+
+| Método   | Rota          | Autenticação         | Finalidade                                                                                                    |
+| -------- | ------------- | -------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/cart`       | Bearer `accessToken` | Retorna carrinho do usuário, com itens de mesmo `productId` agrupados (quantidade somada) e `total` calculado |
+| `POST`   | `/cart`       | Bearer `accessToken` | Adiciona item ao carrinho (cria o carrinho se não existir)                                                    |
+| `DELETE` | `/cart`       | Bearer `accessToken` | Subtrai quantidade de um item; remove o item se a quantidade chegar a zero ou menos                           |
+| `GET`    | `/cart/clear` | Bearer `accessToken` | Esvazia o carrinho do usuário                                                                                 |
 
 A documentação interativa (Swagger) fica disponível em `/docs` com a aplicação em execução.
 
@@ -384,6 +414,7 @@ Testes unitários cobrem controllers, services, guards e strategies dos módulos
 - Adicionar um detector de anomalias comportamentais anti-fraude
 - Adicionar um rate limit por segurança
 - Adicionar um conciliador de saldos (real-time) que dispara um alert para o backoffice em caso de discrepância.
+- Adicionar testes pro módulo `cart` (controller, service, repository) — hoje sem cobertura nenhuma.
 
 ## Observação
 

@@ -5,6 +5,8 @@ import {
     Controller,
     Delete,
     Get,
+    HttpCode,
+    HttpStatus,
     Param,
     Post,
     Put,
@@ -62,6 +64,7 @@ export class ProductsController {
     }
 
     @Delete('/:id')
+    @HttpCode(HttpStatus.ACCEPTED)
     @UseGuards(JwthGuard)
     public async deleteProduct(@Param('id') id: string) {
         return await this.productsService.delete(id);

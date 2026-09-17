@@ -21,28 +21,28 @@ import { UpdateBanksResponseDto } from './dto/update-bank-response.dto';
 export class BanksController {
     constructor(private readonly banksService: BanksService) {}
 
-    @UseGuards(JwthGuard)
     @Get('/')
+    @UseGuards(JwthGuard)
     async getBanks(): Promise<any> {
         return await this.banksService.getBanks();
     }
 
-    @UseGuards(JwthGuard)
     @Get(`/:id`)
+    @UseGuards(JwthGuard)
     async findBanksById(@Param('id') id: string): Promise<any> {
         return await this.banksService.findBankById(id);
     }
 
-    @UseGuards(JwthGuard)
     @Post('/')
+    @UseGuards(JwthGuard)
     async createBanks(
         @Body() body: CreateBankRequestDto,
     ): Promise<CreateBanksResponseDto> {
         return this.banksService.createBank(body);
     }
 
-    @UseGuards(JwthGuard)
     @Put('/:id')
+    @UseGuards(JwthGuard)
     async updateBanks(
         @Param('id') id: string,
         @Body() body: CreateBankRequestDto,
@@ -50,9 +50,9 @@ export class BanksController {
         return this.banksService.updateBank(body, id);
     }
 
+    @Delete('/:id')
     @UseGuards(JwthGuard)
     @HttpCode(HttpStatus.ACCEPTED)
-    @Delete('/:id')
     async deleteBanks(@Param('id') id: string): Promise<void> {
         return this.banksService.deleteBank(id);
     }
