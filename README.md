@@ -8,7 +8,7 @@ O código, as escolhas técnicas e a documentação refletem o estado atual do e
 
 ## Objetivos de estudo
 
-- Revisar a organização modular do NestJS, incluindo a evolução para um "monolito modular" (módulos de domínio isolados sob `src/modules`, infra compartilhada isolada em `src/database` e `src/shared`, fronteiras entre módulos via barrel `index.ts`).
+- Revisar a organização modular do NestJS, incluindo a evolução para um "monólito modular" (módulos de domínio isolados sob `src/modules`, infra compartilhada isolada em `src/database` e `src/shared`, fronteiras entre módulos via barrel `index.ts`).
 - Praticar controllers, services, DTOs e injeção de dependências.
 - Implementar autenticação com JWT e autenticação de dois fatores (2FA/TOTP).
 - Trabalhar com validação de dados recebidos pela API.
@@ -118,7 +118,7 @@ src/
 │   │   ├── user.decorator.ts
 │   │   └── index.ts
 │   ├── filters/
-│   │   └── http-exception.filter.ts   # filtro global de exceções (logs erro 500 inesperado)
+│   │   └── http-exception.filter.ts   # filtro global de exceções (loga erro 500 inesperado)
 │   ├── redis/
 │   │   ├── redis.module.ts
 │   │   └── redis.service.ts
@@ -147,7 +147,7 @@ prisma/
 │   ├── ledger.prisma
 │   ├── balance.prisma
 │   ├── session.prisma
-│   └── products.prisma   # coluna Unsupported("tsvector") + índice Gin pro full-text search
+│   └── products.prisma   # coluna Unsupported("tsvector") + índice GIN pro full-text search
 ├── migrations/
 ├── seeds/
 │   ├── banks.seed.sql   # principais instituições financeiras do Brasil
@@ -355,7 +355,7 @@ A listagem usa paginação por cursor: `pageToken` é o `id` do último item da 
 
 A coluna `searchVector` (`tsvector`, `Unsupported` no `schema.prisma`) é mantida por uma trigger de banco (`product_tsvector_update_trigger`, ver seção Prisma) que recalcula o vetor a partir de `name` (peso `A`) e `description` (peso `B`) a cada `INSERT`/`UPDATE`. A busca roda via `$queryRaw` (Prisma não modela full-text search declarativamente) selecionando colunas explícitas — `SELECT *` quebraria a deserialização, já que o driver não sabe converter o tipo `tsvector`.
 
-As rotas de carrinho usam o prefixo `/api/v1/cart` e exigem `accessToken` (Bearer). Carrinho é persistido no MongoDB (módulo `cart`), com `_id` UUIDv7 e expiração automática por inatividade (índice TTL).
+As rotas de carrinho usam o prefixo `/api/v1/cart` e exigem `accessToken` (Bearer). O carrinho é persistido no MongoDB (módulo `cart`), com `_id` UUIDv7 e expiração automática por inatividade (índice TTL).
 
 | Método   | Rota          | Autenticação         | Finalidade                                                                                                    |
 | -------- | ------------- | -------------------- | ------------------------------------------------------------------------------------------------------------- |
@@ -428,7 +428,7 @@ Opções (qualquer opção do `opossum` também é aceita):
 
 Comportamento real, que vale conhecer:
 
-- O bulkhead é um circuit breaker do `opossum` com `capacity` configurada, então **o circuito também pode abrir**. Cada rejeição por `Semaphore locked` conta como falha nas estatísticas; se o percentual de falhas passar de `errorThresholdPercentage` (default `50`, sem `volumeThreshold` no decorator), o breaker abre e passa a responder pelo fallback **mesmo com vagas livres**, até o `resetTimeout` (default `30000` ms do `opossum`, o decorator não define outro) e uma chamada de prova em `HALF-OPEN`. Se isso não é desejado, informe `volumeThreshold` alto ou `errorThresholdPercentage: 100` nas opções.
+- O bulkhead é um circuit breaker do `opossum` com `capacity` configurada, então **o circuito também pode abrir**. Cada rejeição por `Semaphore locked` conta como falha nas estatísticas; se o percentual de falhas passar de `errorThresholdPercentage` (default `50`, sem `volumeThreshold` no decorator), o breaker abre e passa a responder pelo fallback **mesmo com vagas livres**, até o `resetTimeout` (default `30000` ms do `opossum`, o decorator não define outro) e uma chamada de prova em `HALF-OPEN`. Se isso não for desejado, informe `volumeThreshold` alto ou `errorThresholdPercentage: 100` nas opções.
 - Dois eventos são logados com a mesma mensagem (⚠️ `BULKHEAD CHEIO!`): `semaphoreLocked`, a cada chamada rejeitada por capacidade, e `open`, quando o circuito abre. Com o circuito aberto, o evento é `reject` (que não é logado), então as chamadas seguintes vão pro fallback sem log por requisição.
 - Assim como no circuit breaker, a instância do service é passada como primeiro argumento de `breaker.fire`, e o retorno do método (ou do fallback) é repassado ao chamador.
 
@@ -555,13 +555,12 @@ Todos os `it` estão em inglês; nomes de `describe` e mensagens de negócio (ex
 - Terminar os testes do módulo `budget` (controller e `IdempotencyInterceptor`) e do `RedisService` — hoje sem cobertura nenhuma.
 - Adicionar testes end-to-end para os fluxos de autenticação e budget (`banks` já tem).
 - Estudar observabilidade e tratamento global de erros.
-- Adicionar um detector de anomalias comportamentais anti-fraude
-- Adicionar um rate limit por segurança
+- Adicionar um detector de anomalias comportamentais anti-fraude.
 - Adicionar um conciliador de saldos (real-time) que dispara um alert para o backoffice em caso de discrepância.
 - Adicionar testes pro módulo `cart` (controller, service, repository) — hoje sem cobertura nenhuma.
 - Adicionar testes pros decorators `@UseCircuitBrake` e `@UseBulkhead` e pro rate limit (`ThrottlerGuard`).
-- Mover os contadores do rate limit pra um storage compartilhado (Redis) e limitar mais rígido rotas sensíveis (login, 2FA) com `@Throttle`.
+- Mover os contadores do rate limit pra um storage compartilhado (Redis) e limitar de forma mais rígida as rotas sensíveis (login, 2FA) com `@Throttle`.
 
 ## Observação
 
-Este não pretende ser um template pronto para produção. É um laboratório pessoal para recuperar ritmo, testar abordagens e registrar a evolução do meu estudo de backend com NestJS. Já que estou há uns 5 anos sem pegar algo denso para mexer 😜.
+Este não pretende ser um template pronto para produção. É um laboratório pessoal para recuperar ritmo, testar abordagens e registrar a evolução do meu estudo de backend com NestJS. Já faz uns 5 anos que não pego algo denso para mexer 😜.
