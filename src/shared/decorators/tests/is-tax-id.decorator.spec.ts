@@ -1,4 +1,4 @@
-import { IsTaxIdConstraint } from './is-tax-id.decorator';
+import { IsTaxIdConstraint } from '../is-tax-id.decorator';
 
 describe('IsTaxIdConstraint', () => {
     let constraint: IsTaxIdConstraint;

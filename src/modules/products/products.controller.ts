@@ -10,6 +10,7 @@ import {
     Param,
     Post,
     Put,
+    Query,
     UseGuards,
 } from '@nestjs/common';
 import { SearchProductsRequestDto } from './dto/search-products-request.dto';
@@ -26,7 +27,7 @@ export class ProductsController {
     @Get('/')
     @UseGuards(JwthGuard)
     public async products(
-        @Body() body: FindProductsRequestDto,
+        @Query() body: FindProductsRequestDto,
     ): Promise<FindProductsResponseDto> {
         return await this.productsService.find(
             body.pageSize ?? 10,
@@ -37,7 +38,7 @@ export class ProductsController {
     @Get('/search')
     @UseGuards(JwthGuard)
     public async searchProduct(
-        @Body() body: SearchProductsRequestDto,
+        @Query() body: SearchProductsRequestDto,
     ): Promise<SearchProductsResponseDto> {
         return await this.productsService.search(body);
     }

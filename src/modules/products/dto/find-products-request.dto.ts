@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString } from 'class-validator';
 
 export class FindProductsRequestDto {
@@ -10,6 +11,7 @@ export class FindProductsRequestDto {
     })
     pageToken!: string;
 
+    @Type(() => Number)
     @IsInt({ message: 'pageSize precisa ser um inteiro.' })
     @IsOptional()
     @ApiProperty({

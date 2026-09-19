@@ -4,7 +4,7 @@ Este repositório é um projeto de estudo para retomar a prática de desenvolvim
 
 Estou usando este projeto para desenferrujar meus conhecimentos e reconstruir familiaridade com uma aplicação backend mais completa. Faz cerca de cinco anos que não trabalho em algo mais complexo, então a ideia aqui é avançar de forma incremental, revisitando conceitos, ferramentas e decisões comuns no desenvolvimento de APIs.
 
-O projeto ainda está em construção. O código, as escolhas técnicas e a documentação devem evoluir junto com o aprendizado.
+O código, as escolhas técnicas e a documentação refletem o estado atual do estudo.
 
 ## Objetivos de estudo
 
@@ -14,12 +14,13 @@ O projeto ainda está em construção. O código, as escolhas técnicas e a docu
 - Trabalhar com validação de dados recebidos pela API.
 - Integrar uma aplicação NestJS com PostgreSQL.
 - Usar Prisma ORM (schema, migrations e Prisma Client) para acesso a dados.
-- Estudar idempotência em operações financeiras (módulo `budget`, com `Ledger`/`Balance` versionado e lock de idempotência via Redis) e experimentar entrega de eventos via SSE com padrão outbox (poll em `Ledger` + cursor `publishedAt`) — em andamento.
+- Estudar idempotência em operações financeiras (módulo `budget`, com `Ledger`/`Balance` versionado e lock de idempotência via Redis) e experimentar entrega de eventos via SSE com padrão outbox (poll em `Ledger` + cursor `publishedAt`).
 - Implementar sessão/logout com revogação de token (tabela `Session`, vinculada ao usuário e ao JWT emitido).
 - Experimentar full-text search nativo do PostgreSQL (módulo `products`): coluna `tsvector` gerada por trigger a partir de `name`/`description`, índice `GIN` e busca via `websearch_to_tsquery` + `ts_rank`, com `$queryRaw` do Prisma (coluna `Unsupported("tsvector")` no schema).
 - Praticar CRUD completo com paginação por cursor (módulo `products`): listagem e busca full-text paginadas por cursor opaco em base64 (`id` na listagem; `rank,id` combinados na busca), `slug` único como identificador amigável, e soft delete via extensão do `PrismaService`.
 - Praticar hashing de senha com pepper (`argon2id`) e criptografia simétrica reversível (AES-256-GCM) pro segredo 2FA, que precisa ser recuperado em texto puro pra validar o TOTP.
 - Persistir dados com MongoDB via Mongoose (módulo `cart`): schema com `_id` UUIDv7 (`uuidv7`), índice TTL pra expirar carrinhos inativos automaticamente, e agregação de itens (soma de quantidade por `productId` duplicado + cálculo do total) feita em memória no service via `reduce`.
+- Estudar o padrão circuit breaker com `opossum`: decorator `@UseCircuitBrake` com os estados CLOSED/OPEN/HALF-OPEN, fallback resolvido por nome de método na instância e simulação de todos os estágios no módulo `banks`.
 - Recuperar familiaridade com testes, configuração e execução de aplicações backend.
 
 ## Tecnologias
@@ -35,6 +36,7 @@ O projeto ainda está em construção. O código, as escolhas técnicas e a docu
 - JSON Web Token (JWT) e Passport
 - Hash de senha com `argon2` (argon2id) + pepper
 - Autenticação de dois fatores (TOTP) com `otplib` e QR Code (`qrcode`), segredo criptografado em repouso (AES-256-GCM)
+- Circuit breaker com `opossum`
 - Manipulação de datas com `date-fns` e `@date-fns/tz`
 - Swagger para documentação da API
 - Jest e Supertest
@@ -55,6 +57,7 @@ src/
 │   │   └── index.ts
 │   ├── banks/
 │   │   ├── dto/
+│   │   ├── repositories/   # interface + implementação Prisma
 │   │   ├── tests/
 │   │   ├── banks.controller.ts
 │   │   ├── banks.module.ts
@@ -90,6 +93,7 @@ src/
 │   └── cart/
 │       ├── dto/
 │       ├── repository/   # interface + implementação Mongoose (Cart)
+│       ├── tests/
 │       ├── cart.controller.ts
 │       ├── cart.service.ts
 │       └── cart.module.ts
@@ -105,6 +109,7 @@ src/
 │       └── index.ts
 ├── shared/
 │   ├── decorators/
+│   │   ├── circuit-braker.decorator.ts   # @UseCircuitBrake (opossum)
 │   │   ├── is-tax-id.decorator.ts
 │   │   ├── user.decorator.ts
 │   │   └── index.ts
@@ -118,11 +123,17 @@ src/
 │       ├── date.ts
 │       ├── functions.ts
 │       └── index.ts
+├── tests/
 ├── register-paths.ts
+├── repl.debug.ts   # entrypoint do REPL (`yarn debug`)
 ├── app.controller.ts
 ├── app.module.ts
 ├── app.service.ts
 └── main.ts
+
+.vscode/
+├── launch.json   # configuração "Debug Playground Nest"
+└── settings.json
 
 prisma/
 ├── schema/
@@ -152,15 +163,13 @@ docker-compose.yml
 dockerfile
 ```
 
-Módulo `banks` também ganhou `repositories/` (interface + implementação Prisma), no mesmo padrão do `budget`.
-
 Cada módulo de domínio expõe só o que os outros precisam através do `index.ts` (barrel). Imports entre módulos usam aliases (`@auth`, `@banks`, `@clock`, `@database`, `@shared/decorators`, `@shared/utils`, `@prisma`) — a lista fica só em `tsconfig.json` (`baseUrl` + `paths`); tanto `jest.config.ts` (via `pathsToModuleNameMapper` do `ts-jest`) quanto `src/register-paths.ts` (resolução em runtime pro build compilado, via `tsconfig-paths`) leem esse mesmo arquivo em vez de duplicar a lista.
 
 ## Pré-requisitos
 
 - Node.js instalado.
 - Yarn instalado.
-- Docker e Docker Compose instalados, caso queira executar PostgreSQL e Redis em container.
+- Docker e Docker Compose instalados, caso queira executar PostgreSQL, Redis e MongoDB em container.
 
 ## Configuração
 
@@ -197,7 +206,12 @@ PEPPER_SECRET=um-pepper-concatenado-a-senha-antes-do-hash
 LOG_LEVEL=info
 ```
 
-Não existe mais `DATABASE_URL` — tanto `PrismaService` (runtime, via `@prisma/adapter-pg`) quanto `prisma7.config.ts` (Prisma CLI) montam a connection string a partir de `POSTGRES_HOST`/`POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_PORT`/`POSTGRES_DB`, em vez de ler uma string pronta. Pra rodar a aplicação fora de container (`yarn start:dev`) contra o Postgres do `docker-compose.yml`, use `POSTGRES_HOST=localhost`; dentro do `docker-compose.yml`, o serviço `app` já sobrescreve `POSTGRES_HOST`/`POSTGRES_PORT` pro nome do serviço (`postgree`) e porta interna (`5432`) — os demais valores (`POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB`) vêm do `.env`. `REDIS_HOST`/`REDIS_PORT` seguem a mesma lógica pro serviço `redis`.
+A connection string do PostgreSQL é montada a partir de `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT` e `POSTGRES_DB`. Tanto o `PrismaService` (runtime, via `@prisma/adapter-pg`) quanto o `prisma7.config.ts` (Prisma CLI) usam essas mesmas variáveis. Redis (`REDIS_HOST`/`REDIS_PORT`) e MongoDB (`MONGO_*`) também são configurados só por variáveis separadas.
+
+O serviço `app` do `docker-compose.yml` repassa essas variáveis do `.env` sem alterá-las, então o valor de `*_HOST` depende de onde a aplicação roda:
+
+- Fora de container (`yarn start:dev`), contra os bancos do `docker-compose.yml`: `localhost`.
+- Dentro do container `app`: nome do serviço no compose (`postgree`, `redis`, `mongoDB`) com a porta interna do serviço (`5432`, `6379`, `27017`).
 
 O arquivo `.env` não deve ser versionado. Para ambientes reais, use uma chave JWT forte e mantenha os segredos fora do código-fonte.
 
@@ -229,7 +243,7 @@ O `docker-compose.yml` também define um serviço `app`, que builda a aplicaçã
 docker compose up -d --build
 ```
 
-O serviço `app` lê as variáveis de ambiente (`APP_NAME`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `JWT_SECRET`, etc.) do `.env` na raiz do projeto — exceto `POSTGRES_HOST`/`POSTGRES_PORT`, que o `docker-compose.yml` já fixa pro serviço `postgree` na porta interna `5432` — e expõe a porta `3000`. O `dockerfile` inclui um `HEALTHCHECK` que bate em `/api/v1/health` (rota exposta por `AppController`).
+O serviço `app` lê as variáveis de ambiente (`APP_NAME`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `JWT_SECRET`, etc.) do `.env` na raiz do projeto (ver a seção Configuração sobre os valores de `*_HOST` dentro do container) — e expõe a porta `3000`. O `dockerfile` inclui um `HEALTHCHECK` que bate em `/api/v1/health` (rota exposta por `AppController`).
 
 ## Executando o projeto
 
@@ -301,6 +315,8 @@ As rotas de instituições financeiras usam o prefixo `/api/v1/banks` e exigem `
 | `PUT`    | `/banks/:id` | Bearer `accessToken` | Atualiza instituição financeira     |
 | `DELETE` | `/banks/:id` | Bearer `accessToken` | Remove instituição financeira       |
 
+Além do CRUD, o módulo expõe `GET /banks/test-ciruit-breaker` (sem autenticação), que executa a simulação do circuit breaker descrita na seção [Circuit breaker](#circuit-breaker).
+
 A rota de relógio usa o prefixo `/api/v1/clock` e exige `accessToken` (Bearer). É um endpoint SSE (Server-Sent Events) que emite a cada segundo.
 
 | Método | Rota            | Autenticação         | Finalidade                                                         |
@@ -316,14 +332,16 @@ O módulo `budget` (prefixo `/api/v1/budget`) é o experimento de idempotência 
 | `POST` | `/budget/reserve`        | Bearer `accessToken` | Reserva um valor do saldo disponível (bloqueia), idempotente por `transactionId`                                                                                                                                                                                                                                    |
 | `POST` | `/budget/cancel`         | Bearer `accessToken` | Cancela uma reserva, devolve o valor ao saldo disponível                                                                                                                                                                                                                                                            |
 | `POST` | `/budget/confirm`        | Bearer `accessToken` | Confirma (efetiva) uma reserva como saque                                                                                                                                                                                                                                                                           |
-| `GET`  | `/budget/balance/stream` | Bearer `accessToken` | SSE com padrão outbox: faz poll em `Ledger` a cada 5s filtrando por `userId` e `publishedAt: null`, marca as linhas encontradas como publicadas e emite o `Balance` atual daquele usuário. `Ledger` funciona como fila (cursor `publishedAt`, at-least-once); `distinctUntilChanged` evita reemitir o mesmo estado. |
+| `GET`  | `/budget/balance/stream` | Bearer `accessToken` | Stream SSE com o `Balance` atual do usuário, atualizado via padrão outbox (ver abaixo)                                                                                                                                                                                                                              |
 
-As rotas de produtos usam o prefixo `/api/v1/products` e exigem `accessToken` (Bearer). `GET /products` e `GET /products/search` recebem os parâmetros via `@Body()` (não query string).
+O stream `/budget/balance/stream` usa o padrão outbox: a cada 5s faz poll em `Ledger` filtrando por `userId` e `publishedAt: null`, marca as linhas encontradas como publicadas e emite o `Balance` atual daquele usuário. `Ledger` funciona como fila (cursor `publishedAt`, entrega at-least-once) e `distinctUntilChanged` evita reemitir o mesmo estado.
+
+As rotas de produtos usam o prefixo `/api/v1/products` e exigem `accessToken` (Bearer). `GET /products` e `GET /products/search` recebem os parâmetros por query string (`@Query()`).
 
 | Método   | Rota               | Autenticação         | Finalidade                                                                                                                                       |
 | -------- | ------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET`    | `/products`        | Bearer `accessToken` | Lista produtos com paginação por cursor: `pageSize` (default `10`) e `pageToken` (opcionais, no corpo da requisição)                             |
-| `GET`    | `/products/search` | Bearer `accessToken` | Busca full-text por `terms` (corpo da requisição), paginada por cursor, usando `websearch_to_tsquery` + `ts_rank` contra a coluna `searchVector` |
+| `GET`    | `/products`        | Bearer `accessToken` | Lista produtos com paginação por cursor: `pageSize` (default `10`) e `pageToken` (opcionais, na query string)                             |
+| `GET`    | `/products/search` | Bearer `accessToken` | Busca full-text por `terms` (query string), paginada por cursor, usando `websearch_to_tsquery` + `ts_rank` contra a coluna `searchVector` |
 | `GET`    | `/products/:slug`  | Bearer `accessToken` | Busca produto pelo `slug` (identificador único e amigável)                                                                                       |
 | `POST`   | `/products`        | Bearer `accessToken` | Cria produto. `slug` é opcional no corpo — se omitido, é gerado a partir de `name` (`slugfy`)                                                    |
 | `PUT`    | `/products/:id`    | Bearer `accessToken` | Atualiza produto                                                                                                                                 |
@@ -345,6 +363,42 @@ As rotas de carrinho usam o prefixo `/api/v1/cart` e exigem `accessToken` (Beare
 A documentação interativa (Swagger) fica disponível em `/docs` com a aplicação em execução.
 
 Esses fluxos ainda fazem parte do exercício e serão refinados conforme o projeto avançar.
+
+## Circuit breaker
+
+`@UseCircuitBrake(options)` (`src/shared/decorators/circuit-braker.decorator.ts`) protege um método de service que chama um serviço externo, usando `opossum`. Existe um breaker por `Classe.método`, criado na primeira chamada e guardado num registry em memória.
+
+Estados:
+
+| Estado      | Comportamento                                                                                                                                                                       |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLOSED`    | Chamadas passam. Sucessos e falhas são contados numa janela deslizante (`rollingCountTimeout`, default 10s)                                                                         |
+| `OPEN`      | Abre quando há ao menos `volumeThreshold` chamadas na janela e o percentual de erro atinge `errorThresholdPercentage`. Nenhuma chamada chega ao serviço; a resposta vem do fallback |
+| `HALF-OPEN` | Após `resetTimeout`, a próxima chamada é uma prova: sucesso fecha o breaker (`CLOSED`), falha reabre (`OPEN`)                                                                       |
+
+Opções (defaults do decorator: `timeout` 5000 ms, `errorThresholdPercentage` 50, `resetTimeout` 10000 ms; qualquer opção do `opossum` também é aceita):
+
+- `fallback`: nome de um método da própria instância (ex.: `'_fallbackProcessing'`, pode ser `private`). Recebe os mesmos argumentos do método protegido, mais o erro como último argumento. Com `fallback` configurado, o `opossum` não lança erro: devolve o retorno do fallback tanto em falha real quanto com o breaker aberto.
+
+A instância do service é passada como primeiro argumento de `breaker.fire`, porque o breaker é único por método e precisa executar o método original e o fallback com o `this` correto. Os eventos `open`, `halfOpen` e `close` são logados (🔴 🟡 🟢).
+
+Exemplo em `BanksService`:
+
+```ts
+@UseCircuitBrake({
+    timeout: 3000,
+    errorThresholdPercentage: 50,
+    volumeThreshold: 5,
+    resetTimeout: 5000,
+    fallback: '_fallbackProcessing',
+})
+public async callGateway(status: number): Promise<number> {
+    const res = await axios.get(`https://httpbin.org/status/${status}`);
+    return res.status;
+}
+```
+
+`GET /banks/test-ciruit-breaker` chama `testCircuitBraker`, que percorre os estágios usando `https://httpbin.org/status/{código}`: 3 chamadas com `200` (`CLOSED`), 6 com `500` até o breaker abrir, 3 chamadas com breaker `OPEN`, espera de 5,5 s (`HALF-OPEN`), 1 chamada de prova com `200` (fecha) e 2 chamadas finais com o breaker `CLOSED` novamente. Acompanhe os logs do servidor para ver as transições.
 
 ## Prisma
 
@@ -369,9 +423,7 @@ npx prisma migrate deploy
 npx prisma migrate status
 ```
 
-Parte da evolução inicial do schema (tabela `banks`, campos de 2FA, `ledger`/`balance`) foi aplicada via `db push` durante os estudos, sem gerar migration correspondente — isso foi reconciliado depois numa migration de catch-up que capturou o schema acumulado de uma vez (`npx prisma migrate status` confirma o banco sincronizado com o histórico atual). A partir dela, toda mudança de schema (incluindo o rename do enum `Type` para `LedgerType` e a criação da tabela `session`) segue via `migrate dev`.
-
-Uma migration (`balance_notification_trigger`) foge do padrão do Prisma Client: cria uma função `plpgsql` e uma trigger (`AFTER INSERT OR UPDATE ON balance`) que dispara `pg_notify('balance_updates', ...)` a cada mudança na tabela. Ela foi o primeiro experimento de `LISTEN`/`NOTIFY` puro pro endpoint `/budget/balance/stream`, mas ficou pra trás: o stream hoje usa poll com outbox em `Ledger` (ver seção de Rotas), então trigger e função continuam no banco sem consumidor. Trigger e função não têm representação no `schema.prisma` (o Prisma não modela isso declarativamente); o SQL foi escrito à mão dentro da pasta da migration.
+Mudanças de schema seguem via `migrate dev`, e `npx prisma migrate status` confirma o banco sincronizado com o histórico de migrations.
 
 ### Seed
 
@@ -399,12 +451,20 @@ yarn test:cov
 yarn test:e2e
 ```
 
-Testes unitários cobrem controllers, services, guards e strategies dos módulos `auth`, `banks` e `clock`, além do decorator `is-tax-id`. Todos os `it` estão em inglês; nomes de `describe` e mensagens de negócio (exceptions, DTOs) seguem em português. O módulo `budget` foi dividido em `budget.service` (facade), `balance.service` e `ledger.service`, todos cobertos; ainda faltam o controller e o `IdempotencyInterceptor`. Testes end-to-end existem pro módulo `banks` (`banks.e2e-spec.ts`); os demais módulos ainda não têm.
+Cobertura por módulo:
+
+- `auth`, `banks` e `clock`: testes unitários de controllers, services, guards e strategies.
+- `budget`: `budget.service` (facade), `balance.service` e `ledger.service` cobertos; controller e `IdempotencyInterceptor` sem testes.
+- `shared/decorators`: spec do `is-tax-id` em `tests/`.
+- `cart` e `products`: pastas `tests/` vazias.
+- End-to-end: só o módulo `banks` (`banks.e2e-spec.ts`).
+
+Todos os `it` estão em inglês; nomes de `describe` e mensagens de negócio (exceptions, DTOs) seguem em português.
 
 ## Base de conhecimento e skills (IA)
 
 - `knowledge.md` (raiz): documento de referência sobre o projeto (arquitetura por módulo, padrões de código, convenções de naming, stack técnico, aliases de import etc.) usado como contexto para agentes de IA trabalharem no repositório.
-- `skills/`: diretório de skills reutilizáveis por agentes de IA. Hoje contém `nest-controller-generator.skill.md`, que automatiza a criação de controllers seguindo os padrões descritos em `knowledge.md`. Diretório em início — tende a crescer com novas skills conforme o projeto avança.
+- `skills/`: diretório de skills reutilizáveis por agentes de IA. Contém `nest-controller-generator.skill.md`, que automatiza a criação de controllers seguindo os padrões descritos em `knowledge.md`.
 
 ## Próximos passos
 
@@ -415,6 +475,7 @@ Testes unitários cobrem controllers, services, guards e strategies dos módulos
 - Adicionar um rate limit por segurança
 - Adicionar um conciliador de saldos (real-time) que dispara um alert para o backoffice em caso de discrepância.
 - Adicionar testes pro módulo `cart` (controller, service, repository) — hoje sem cobertura nenhuma.
+- Adicionar testes pro decorator `@UseCircuitBrake`.
 
 ## Observação
 
