@@ -15,16 +15,19 @@ import { BanksService } from './banks.service';
 import { CreateBankRequestDto } from './dto/create-bank-request.dto';
 import { CreateBanksResponseDto } from './dto/create-bank-response.dto';
 import { UpdateBanksResponseDto } from './dto/update-bank-response.dto';
+import { SkipThrottle } from '@nestjs/throttler';
 
 @Controller('banks')
 export class BanksController {
     constructor(private readonly banksService: BanksService) {}
 
+    @SkipThrottle()
     @Get('/test-ciruit-breaker')
     async testCircuitBraker() {
         return this.banksService.testCircuitBraker();
     }
 
+    @SkipThrottle()
     @Get('/test-bulkhead')
     async testBulkhead() {
         return this.banksService.testBulkhead();

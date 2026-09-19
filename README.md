@@ -22,6 +22,7 @@ O código, as escolhas técnicas e a documentação refletem o estado atual do e
 - Persistir dados com MongoDB via Mongoose (módulo `cart`): schema com `_id` UUIDv7 (`uuidv7`), índice TTL pra expirar carrinhos inativos automaticamente, e agregação de itens (soma de quantidade por `productId` duplicado + cálculo do total) feita em memória no service via `reduce`.
 - Estudar o padrão circuit breaker com `opossum`: decorator `@UseCircuitBrake` com os estados CLOSED/OPEN/HALF-OPEN, fallback resolvido por nome de método na instância e simulação de todos os estágios no módulo `banks`.
 - Estudar o padrão bulkhead com `opossum`: decorator `@UseBulkhead` limitando execuções simultâneas via `capacity`, com rejeição imediata e fallback quando o limite estoura.
+- Estudar rate limit com `@nestjs/throttler`: `ThrottlerGuard` global limitando requisições por cliente (10 por segundo), respondendo `429`.
 - Recuperar familiaridade com testes, configuração e execução de aplicações backend.
 
 ## Tecnologias
@@ -38,6 +39,7 @@ O código, as escolhas técnicas e a documentação refletem o estado atual do e
 - Hash de senha com `argon2` (argon2id) + pepper
 - Autenticação de dois fatores (TOTP) com `otplib` e QR Code (`qrcode`), segredo criptografado em repouso (AES-256-GCM)
 - Circuit breaker e bulkhead com `opossum`
+- Rate limit com `@nestjs/throttler`
 - Manipulação de datas com `date-fns` e `@date-fns/tz`
 - Swagger para documentação da API
 - Jest e Supertest
@@ -366,7 +368,19 @@ A documentação interativa (Swagger) fica disponível em `/docs` com a aplicaç
 
 Esses fluxos ainda fazem parte do exercício e serão refinados conforme o projeto avançar.
 
-## Circuit breaker
+## Resiliência e tolerância a falhas
+
+O projeto tem três mecanismos complementares. Cada um protege contra um tipo diferente de problema:
+
+| Mecanismo       | Protege contra                                                | Onde atua                                        | Implementação                                            | Quando dispara                                                                                   | Resposta                                    |
+| --------------- | ------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------- |
+| Circuit breaker | Dependência externa lenta ou falhando                         | Método de service que chama o serviço externo    | Decorator `@UseCircuitBrake` (`opossum`)                 | Taxa de erro passa de `errorThresholdPercentage` na janela                                      | Fallback (não chama o serviço)              |
+| Bulkhead        | Um recurso caro consumir tudo (concorrência excessiva)        | Método pesado de service                         | Decorator `@UseBulkhead` (`opossum`, `capacity`)         | Mais execuções simultâneas que `capacity`                                                        | Fallback (rejeição imediata, sem fila)      |
+| Rate limit      | Cliente enviando requisições demais (abuso, loop, força bruta) | Borda HTTP, todas as rotas, por cliente (IP)     | `ThrottlerModule` + `ThrottlerGuard` global (`@nestjs/throttler`) | Mais de `limit` requisições por `ttl` do mesmo cliente                                           | `429 Too Many Requests`                     |
+
+Em resumo: o rate limit controla **quantas requisições cada cliente pode fazer**, o bulkhead controla **quantas execuções de um método rodam ao mesmo tempo** e o circuit breaker controla **se vale a pena chamar uma dependência que está falhando**. Uma requisição passa por eles nessa ordem: o guard de rate limit barra antes de qualquer lógica, e dentro do service o bulkhead e o circuit breaker protegem cada método decorado.
+
+### Circuit breaker
 
 `@UseCircuitBrake(options)` (`src/shared/decorators/circuit-braker.decorator.ts`) protege um método de service que chama um serviço externo, usando `opossum`. Existe um breaker por `Classe.método`, criado na primeira chamada e guardado num registry em memória.
 
@@ -402,7 +416,7 @@ public async callGateway(status: number): Promise<number> {
 
 `GET /banks/test-ciruit-breaker` chama `testCircuitBraker`, que percorre os estágios usando `https://httpbin.org/status/{código}`: 3 chamadas com `200` (`CLOSED`), 6 com `500` até o breaker abrir, 3 chamadas com breaker `OPEN`, espera de 5,5 s (`HALF-OPEN`), 1 chamada de prova com `200` (fecha) e 2 chamadas finais com o breaker `CLOSED` novamente. Acompanhe os logs do servidor para ver as transições.
 
-## Bulkhead
+### Bulkhead
 
 `@UseBulkhead(options)` (`src/shared/decorators/bulkhead.decorator.ts`) isola um método pesado limitando quantas execuções simultâneas ele aceita, pra que um recurso caro não consuma o processo inteiro. Usa o `opossum` e a opção `capacity` (semáforo de concorrência). Como no circuit breaker, existe um breaker por `Classe.método`, criado na primeira chamada e guardado num registry em memória.
 
@@ -444,6 +458,31 @@ for i in 1 2 3; do curl -s localhost:3000/api/v1/banks/test-bulkhead & done; wai
 ```
 
 Com `capacity: 2`, as duas primeiras seguram 10 s e a terceira volta na hora com o retorno do fallback (`{ "error": "Módulo completamente ocupado. Tente mais tarde. (Semaphore locked)" }`) e o log ⚠️ no servidor. Com 3 chamadas a taxa de falha é ~33%, então o circuito não abre; com mais rejeições seguidas ele passa dos 50% e abre (ver acima). A porta é `PORT` (default `3000`) e o prefixo `api/v1` vem de `setGlobalPrefix` em `main.ts`.
+
+### Rate limit
+
+O limite de requisições usa `@nestjs/throttler` (v6), configurado em `src/app.module.ts`:
+
+```ts
+ThrottlerModule.forRoot([{ ttl: 1000, limit: 10 }]),
+// ...
+providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }, AppService],
+```
+
+- `ttl: 1000` (em milissegundos) e `limit: 10`: cada cliente pode fazer até 10 requisições por segundo.
+- Como o `ThrottlerGuard` é registrado como `APP_GUARD`, vale para **todas as rotas** da aplicação, exceto as que usam `@SkipThrottle()`: hoje só `GET /banks/test-ciruit-breaker` e `GET /banks/test-bulkhead`, isentas pra que rajadas de teste cheguem ao circuit breaker e ao bulkhead sem levar `429` antes. Não há `@Throttle` (limite customizado por rota) em nenhuma rota por enquanto.
+- O cliente é identificado pelo IP (`req.ip`, tracker default do throttler). Atrás de proxy ou load balancer, o IP visto é o do proxy, a menos que o Express seja configurado com `trust proxy`.
+- Os contadores ficam em memória do processo (storage default): não são compartilhados entre instâncias e zeram ao reiniciar. Pra rodar com mais de uma instância seria preciso um storage compartilhado, como o Redis que o projeto já usa.
+
+Ao estourar o limite, a resposta é `429` com a mensagem `ThrottlerException: Too Many Requests` e o header `Retry-After` (segundos até liberar). Todas as respostas trazem `X-RateLimit-Limit`, `X-RateLimit-Remaining` e `X-RateLimit-Reset`.
+
+Pra ver funcionando, dispare mais de 10 requisições em menos de 1 s numa rota que não seja isenta. `GET /banks` serve: sem token ela responde `401`, mas o guard de rate limit roda antes do de autenticação, então o `429` aparece a partir da 11ª:
+
+```bash
+for i in $(seq 1 15); do curl -s -o /dev/null -w "%{http_code}\n" localhost:3000/api/v1/banks & done; wait
+```
+
+Esperado: 10 respostas `401` e 5 `429` (a ordem de saída pode variar).
 
 ## Prisma
 
@@ -520,7 +559,8 @@ Todos os `it` estão em inglês; nomes de `describe` e mensagens de negócio (ex
 - Adicionar um rate limit por segurança
 - Adicionar um conciliador de saldos (real-time) que dispara um alert para o backoffice em caso de discrepância.
 - Adicionar testes pro módulo `cart` (controller, service, repository) — hoje sem cobertura nenhuma.
-- Adicionar testes pros decorators `@UseCircuitBrake` e `@UseBulkhead`.
+- Adicionar testes pros decorators `@UseCircuitBrake` e `@UseBulkhead` e pro rate limit (`ThrottlerGuard`).
+- Mover os contadores do rate limit pra um storage compartilhado (Redis) e limitar mais rígido rotas sensíveis (login, 2FA) com `@Throttle`.
 
 ## Observação
 
