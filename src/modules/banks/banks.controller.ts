@@ -8,7 +8,6 @@ import {
     Param,
     Post,
     Put,
-    Req,
     UseGuards,
 } from '@nestjs/common';
 import { JwthGuard } from '@auth';
@@ -20,6 +19,11 @@ import { UpdateBanksResponseDto } from './dto/update-bank-response.dto';
 @Controller('banks')
 export class BanksController {
     constructor(private readonly banksService: BanksService) {}
+
+    @Get('/test-ciruit-breaker')
+    async testCircuitBraker() {
+        return this.banksService.testCircuitBraker();
+    }
 
     @Get('/')
     @UseGuards(JwthGuard)

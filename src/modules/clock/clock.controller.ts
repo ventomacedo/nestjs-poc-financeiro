@@ -8,7 +8,6 @@ import { ClockService } from './clock.service';
 export class ClockController {
     constructor(private clockService: ClockService) {}
 
-    @UseGuards(JwthGuard)
     @Header('Content-Type', 'text/event-stream')
     @Header('Cache-Control', 'no-cache')
     @Header('Connection', 'keep-alive')
