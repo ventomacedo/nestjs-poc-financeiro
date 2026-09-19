@@ -9,7 +9,7 @@ import {
     type IBankRepository,
 } from './repositories/bank.repository.interface';
 import axios from 'axios';
-import { UseCircuitBrake } from 'shared/decorators/circuit-braker.decorator';
+import { UseBulkhead, UseCircuitBrake } from '@shared/decorators';
 import { delay } from '@shared/utils';
 
 @Injectable()
@@ -60,12 +60,15 @@ export class BanksService {
             );
     }
 
+    /**
+     * Métodos de teste para o circuitBreaker
+     */
     @UseCircuitBrake({
         timeout: 3000,
         errorThresholdPercentage: 50,
         volumeThreshold: 5, // mínimo de chamadas na janela antes de poder abrir
         resetTimeout: 5000, // OPEN -> HALF-OPEN após 5s
-        fallback: '_fallbackTest',
+        fallback: '_fallbackCircuitBreakTest',
     })
     public async callGateway(status: number): Promise<number> {
         const res = await axios.get(`https://httpbin.org/status/${status}`);
@@ -96,8 +99,31 @@ export class BanksService {
         for (let i = 1; i <= 2; i++) await call(`[CLOSED again] #${i}`, 200);
     }
 
-    private async _fallbackTest(status: number, err: Error) {
+    private async _fallbackCircuitBreakTest(status: number, err: Error) {
         this.logger.warn(`Fallback (status=${status}): ${err?.message}`);
         return { status, error: err.message };
+    }
+
+    /**
+     * Métodos de teste para o Bulkhead
+     */
+    @UseBulkhead({
+        capacity: 1, // Permiet no máximo 1 processamento pesado ao mesmo tempo
+        fallback: '_fallbackBulkheadTest',
+    })
+    public async callReport() {
+        return await delay(10000);
+    }
+
+    public async testBulkhead() {
+        return this.callReport();
+    }
+
+    // sem args no método original: fallback recebe só o erro
+    private async _fallbackBulkheadTest(err: Error) {
+        this.logger.warn(`⚠️ Fallback: Max Capacity Reached`);
+        return {
+            error: `Módulo completamente ocupado. Tente mais tarde. (${err.message})`,
+        };
     }
 }

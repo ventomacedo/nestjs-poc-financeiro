@@ -25,6 +25,11 @@ export class BanksController {
         return this.banksService.testCircuitBraker();
     }
 
+    @Get('/test-bulkhead')
+    async testBulkhead() {
+        return this.banksService.testBulkhead();
+    }
+
     @Get('/')
     @UseGuards(JwthGuard)
     async getBanks(): Promise<any> {

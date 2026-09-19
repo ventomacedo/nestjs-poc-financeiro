@@ -21,6 +21,7 @@ O código, as escolhas técnicas e a documentação refletem o estado atual do e
 - Praticar hashing de senha com pepper (`argon2id`) e criptografia simétrica reversível (AES-256-GCM) pro segredo 2FA, que precisa ser recuperado em texto puro pra validar o TOTP.
 - Persistir dados com MongoDB via Mongoose (módulo `cart`): schema com `_id` UUIDv7 (`uuidv7`), índice TTL pra expirar carrinhos inativos automaticamente, e agregação de itens (soma de quantidade por `productId` duplicado + cálculo do total) feita em memória no service via `reduce`.
 - Estudar o padrão circuit breaker com `opossum`: decorator `@UseCircuitBrake` com os estados CLOSED/OPEN/HALF-OPEN, fallback resolvido por nome de método na instância e simulação de todos os estágios no módulo `banks`.
+- Estudar o padrão bulkhead com `opossum`: decorator `@UseBulkhead` limitando execuções simultâneas via `capacity`, com rejeição imediata e fallback quando o limite estoura.
 - Recuperar familiaridade com testes, configuração e execução de aplicações backend.
 
 ## Tecnologias
@@ -36,7 +37,7 @@ O código, as escolhas técnicas e a documentação refletem o estado atual do e
 - JSON Web Token (JWT) e Passport
 - Hash de senha com `argon2` (argon2id) + pepper
 - Autenticação de dois fatores (TOTP) com `otplib` e QR Code (`qrcode`), segredo criptografado em repouso (AES-256-GCM)
-- Circuit breaker com `opossum`
+- Circuit breaker e bulkhead com `opossum`
 - Manipulação de datas com `date-fns` e `@date-fns/tz`
 - Swagger para documentação da API
 - Jest e Supertest
@@ -109,6 +110,7 @@ src/
 │       └── index.ts
 ├── shared/
 │   ├── decorators/
+│   │   ├── bulkhead.decorator.ts   # @UseBulkhead (opossum, limite de concorrência)
 │   │   ├── circuit-braker.decorator.ts   # @UseCircuitBrake (opossum)
 │   │   ├── is-tax-id.decorator.ts
 │   │   ├── user.decorator.ts
@@ -315,7 +317,7 @@ As rotas de instituições financeiras usam o prefixo `/api/v1/banks` e exigem `
 | `PUT`    | `/banks/:id` | Bearer `accessToken` | Atualiza instituição financeira     |
 | `DELETE` | `/banks/:id` | Bearer `accessToken` | Remove instituição financeira       |
 
-Além do CRUD, o módulo expõe `GET /banks/test-ciruit-breaker` (sem autenticação), que executa a simulação do circuit breaker descrita na seção [Circuit breaker](#circuit-breaker).
+Além do CRUD, o módulo expõe `GET /banks/test-ciruit-breaker` (sem autenticação), que executa a simulação do circuit breaker descrita na seção [Circuit breaker](#circuit-breaker), e `GET /banks/test-bulkhead` (também sem autenticação), que demonstra o limite de concorrência descrito em [Bulkhead](#bulkhead).
 
 A rota de relógio usa o prefixo `/api/v1/clock` e exige `accessToken` (Bearer). É um endpoint SSE (Server-Sent Events) que emite a cada segundo.
 
@@ -400,6 +402,49 @@ public async callGateway(status: number): Promise<number> {
 
 `GET /banks/test-ciruit-breaker` chama `testCircuitBraker`, que percorre os estágios usando `https://httpbin.org/status/{código}`: 3 chamadas com `200` (`CLOSED`), 6 com `500` até o breaker abrir, 3 chamadas com breaker `OPEN`, espera de 5,5 s (`HALF-OPEN`), 1 chamada de prova com `200` (fecha) e 2 chamadas finais com o breaker `CLOSED` novamente. Acompanhe os logs do servidor para ver as transições.
 
+## Bulkhead
+
+`@UseBulkhead(options)` (`src/shared/decorators/bulkhead.decorator.ts`) isola um método pesado limitando quantas execuções simultâneas ele aceita, pra que um recurso caro não consuma o processo inteiro. Usa o `opossum` e a opção `capacity` (semáforo de concorrência). Como no circuit breaker, existe um breaker por `Classe.método`, criado na primeira chamada e guardado num registry em memória.
+
+Opções (qualquer opção do `opossum` também é aceita):
+
+- `capacity` (obrigatória): máximo de execuções simultâneas. Quando o limite é atingido, novas chamadas são rejeitadas na hora (erro `Semaphore locked`), sem esperar em fila, até que uma execução em andamento termine.
+- `fallback`: nome de um método da própria instância (pode ser `private`), que responde às chamadas rejeitadas. Recebe os mesmos argumentos do método protegido, mais o erro como último argumento — num método sem parâmetros, recebe só o erro.
+- `timeout`: sem default no decorator (`false`), diferente do circuit breaker. O decorator repassa `options.timeout` só se você informar; sem ele, execuções lentas não são cortadas.
+
+Comportamento real, que vale conhecer:
+
+- O bulkhead é um circuit breaker do `opossum` com `capacity` configurada, então **o circuito também pode abrir**. Cada rejeição por `Semaphore locked` conta como falha nas estatísticas; se o percentual de falhas passar de `errorThresholdPercentage` (default `50`, sem `volumeThreshold` no decorator), o breaker abre e passa a responder pelo fallback **mesmo com vagas livres**, até o `resetTimeout` (default `30000` ms do `opossum`, o decorator não define outro) e uma chamada de prova em `HALF-OPEN`. Se isso não é desejado, informe `volumeThreshold` alto ou `errorThresholdPercentage: 100` nas opções.
+- Dois eventos são logados com a mesma mensagem (⚠️ `BULKHEAD CHEIO!`): `semaphoreLocked`, a cada chamada rejeitada por capacidade, e `open`, quando o circuito abre. Com o circuito aberto, o evento é `reject` (que não é logado), então as chamadas seguintes vão pro fallback sem log por requisição.
+- Assim como no circuit breaker, a instância do service é passada como primeiro argumento de `breaker.fire`, e o retorno do método (ou do fallback) é repassado ao chamador.
+
+Exemplo em `BanksService`:
+
+```ts
+@UseBulkhead({
+    capacity: 2,
+    fallback: '_fallbackBulkheadTest',
+})
+public async callReport() {
+    return await delay(10000);
+}
+
+private async _fallbackBulkheadTest(err: Error) {
+    this.logger.warn(`Fallback: Max Capacity Reached`);
+    return {
+        error: `Módulo completamente ocupado. Tente mais tarde. (${err.message})`,
+    };
+}
+```
+
+`GET /api/v1/banks/test-bulkhead` (sem autenticação) chama `testBulkhead`, que delega pra `callReport`, que espera 10 s (`delay` recebe milissegundos). Pra ver o bulkhead agir, dispare mais requisições simultâneas do que a `capacity`:
+
+```bash
+for i in 1 2 3; do curl -s localhost:3000/api/v1/banks/test-bulkhead & done; wait
+```
+
+Com `capacity: 2`, as duas primeiras seguram 10 s e a terceira volta na hora com o retorno do fallback (`{ "error": "Módulo completamente ocupado. Tente mais tarde. (Semaphore locked)" }`) e o log ⚠️ no servidor. Com 3 chamadas a taxa de falha é ~33%, então o circuito não abre; com mais rejeições seguidas ele passa dos 50% e abre (ver acima). A porta é `PORT` (default `3000`) e o prefixo `api/v1` vem de `setGlobalPrefix` em `main.ts`.
+
 ## Prisma
 
 O schema fica dividido por domínio em `prisma/schema/` (`user.prisma`, `bank.prisma`, `ledger.prisma`, `balance.prisma`, `session.prisma`, `products.prisma`), mais `schema.prisma` com o bloco `generator`/`datasource` — o Prisma CLI funde todos os arquivos da pasta automaticamente. Configuração de conexão e caminho do schema fica em `prisma7.config.ts`, que monta a connection string a partir das mesmas `POSTGRES_*` vars usadas pelo `PrismaService` em runtime (ver seção Configuração).
@@ -475,7 +520,7 @@ Todos os `it` estão em inglês; nomes de `describe` e mensagens de negócio (ex
 - Adicionar um rate limit por segurança
 - Adicionar um conciliador de saldos (real-time) que dispara um alert para o backoffice em caso de discrepância.
 - Adicionar testes pro módulo `cart` (controller, service, repository) — hoje sem cobertura nenhuma.
-- Adicionar testes pro decorator `@UseCircuitBrake`.
+- Adicionar testes pros decorators `@UseCircuitBrake` e `@UseBulkhead`.
 
 ## Observação
 

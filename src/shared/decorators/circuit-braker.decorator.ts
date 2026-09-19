@@ -34,8 +34,8 @@ export function UseCircuitBrake(options: CircuitBrakerOptions = {}) {
                 );
 
                 if (options.fallback) {
-                    breaker.fallback((self: any, ...fbArgs: any[]) =>
-                        self[options.fallback!](...fbArgs),
+                    breaker.fallback((self: any, ..._args: any[]) =>
+                        self[options.fallback!](..._args),
                     );
                 }
 
