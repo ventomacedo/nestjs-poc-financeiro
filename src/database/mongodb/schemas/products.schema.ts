@@ -37,6 +37,6 @@ export const ProductsSchema: Schema<IProduct> = new Schema<IProduct>(
 );
 
 ProductsSchema.index(
-    { title: 'text', description: 'text' },
+    { name: 'text', description: 'text' },
     { weights: { name: 10, description: 9 }, default_language: 'portuguese' },
 );

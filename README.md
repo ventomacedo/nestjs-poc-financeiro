@@ -16,13 +16,14 @@ O código, as escolhas técnicas e a documentação refletem o estado atual do e
 - Usar Prisma ORM (schema, migrations e Prisma Client) para acesso a dados.
 - Estudar idempotência em operações financeiras (módulo `budget`, com `Ledger`/`Balance` versionado e lock de idempotência via Redis) e experimentar entrega de eventos via SSE com padrão outbox (poll em `Ledger` + cursor `publishedAt`).
 - Implementar sessão/logout com revogação de token (tabela `Session`, vinculada ao usuário e ao JWT emitido).
-- Experimentar full-text search nativo do PostgreSQL (módulo `products`): coluna `tsvector` gerada por trigger a partir de `name`/`description`, índice `GIN` e busca via `websearch_to_tsquery` + `ts_rank`, com `$queryRaw` do Prisma (coluna `Unsupported("tsvector")` no schema).
-- Praticar CRUD completo com paginação por cursor (módulo `products`): listagem e busca full-text paginadas por cursor opaco em base64 (`id` na listagem; `rank,id` combinados na busca), `slug` único como identificador amigável, e soft delete via extensão do `PrismaService`.
+- Experimentar full-text search nativo do PostgreSQL (módulo `posts`): coluna `tsvector` mantida por trigger a partir de `title`/`excerpt`/`content`, índice `GIN` e busca via `websearch_to_tsquery` + `ts_rank`, com `$queryRaw` do Prisma (coluna `Unsupported("tsvector")` no schema).
+- Praticar CRUD completo com paginação por cursor (módulos `posts` e `products`): listagem e busca full-text paginadas por cursor opaco em base64 (`id` na listagem; `rank,id` combinados na busca), `slug` único como identificador amigável e, em `posts`, soft delete via extensão do `PrismaService`.
 - Praticar hashing de senha com pepper (`argon2id`) e criptografia simétrica reversível (AES-256-GCM) pro segredo 2FA, que precisa ser recuperado em texto puro pra validar o TOTP.
-- Persistir dados com MongoDB via Mongoose (módulo `cart`): schema com `_id` UUIDv7 (`uuidv7`), índice TTL pra expirar carrinhos inativos automaticamente, e agregação de itens (soma de quantidade por `productId` duplicado + cálculo do total) feita em memória no service via `reduce`.
+- Persistir dados com MongoDB via Mongoose (módulos `cart` e `products`): schema com `_id` UUIDv7 (`uuidv7`), índice TTL pra expirar carrinhos inativos automaticamente, e agregação de itens (soma de quantidade por `productId` duplicado + cálculo do total) feita em memória no service via `reduce`. Em `products`, o mesmo `_id` UUIDv7 exige paginação por cursor via `$expr` (o schema UUID não aceita `$gt`/`$lt` no cast) e a busca usa índice de texto (`$text` + `textScore`) dentro de um `aggregate`, com cursor `(rank, _id)`.
 - Estudar o padrão circuit breaker com `opossum`: decorator `@UseCircuitBrake` com os estados CLOSED/OPEN/HALF-OPEN, fallback resolvido por nome de método na instância e simulação de todos os estágios no módulo `banks`.
 - Estudar o padrão bulkhead com `opossum`: decorator `@UseBulkhead` limitando execuções simultâneas via `capacity`, com rejeição imediata e fallback quando o limite estoura.
 - Estudar rate limit com `@nestjs/throttler`: `ThrottlerGuard` global limitando requisições por cliente (10 por segundo), respondendo `429`.
+- Manter os seeders independentes do ORM (pasta `seeds/` na raiz), populando Postgres (`banks`, `posts`) e MongoDB (`products`) de forma idempotente.
 - Recuperar familiaridade com testes, configuração e execução de aplicações backend.
 
 ## Tecnologias
@@ -32,7 +33,7 @@ O código, as escolhas técnicas e a documentação refletem o estado atual do e
 - NestJS
 - PostgreSQL
 - Redis (suporte ao estudo de idempotência), via cliente `ioredis`
-- MongoDB com Mongoose (`mongoose` + `@nestjs/mongoose`) — carrinho de compras (módulo `cart`)
+- MongoDB com Mongoose (`mongoose` + `@nestjs/mongoose`) — carrinho de compras (módulo `cart`) e catálogo de produtos (módulo `products`)
 - Docker e Docker Compose
 - Prisma ORM (`@prisma/client`, driver adapter `@prisma/adapter-pg`), incluindo o preview feature `fullTextSearchPostgres` e tipo `Unsupported("tsvector")` pra busca full-text nativa do Postgres
 - JSON Web Token (JWT) e Passport
@@ -85,9 +86,17 @@ src/
 │   │   ├── idempotency.interceptor.ts   # interceptor de idempotência (Redis)
 │   │   ├── budget.module.ts
 │   │   └── index.ts
-│   ├── products/
+│   ├── posts/
 │   │   ├── dto/
 │   │   ├── repository/   # interface + implementação Prisma, inclui full-text search via $queryRaw
+│   │   ├── tests/
+│   │   ├── posts.controller.ts
+│   │   ├── posts.service.ts
+│   │   ├── posts.module.ts
+│   │   └── index.ts
+│   ├── products/
+│   │   ├── dto/
+│   │   ├── repository/   # interface + implementação Mongoose, inclui busca por $text (aggregate)
 │   │   ├── tests/
 │   │   ├── products.controller.ts
 │   │   ├── products.service.ts
@@ -105,7 +114,7 @@ src/
 │   ├── mongodb/
 │   │   ├── mongo.module.ts
 │   │   ├── mongo.service.ts
-│   │   └── schemas/   # schemas Mongoose (ex.: cart.schema.ts)
+│   │   └── schemas/   # schemas Mongoose (cart.schema.ts, products.schema.ts)
 │   └── postgresql/
 │       ├── database.module.ts
 │       ├── prisma.service.ts
@@ -147,7 +156,7 @@ prisma/
 │   ├── ledger.prisma
 │   ├── balance.prisma
 │   ├── session.prisma
-│   └── products.prisma   # coluna Unsupported("tsvector") + índice GIN pro full-text search
+│   └── posts.prisma   # coluna Unsupported("tsvector") + índice GIN pro full-text search
 └── migrations/
 
 seeds/   # independente do Prisma
@@ -347,20 +356,33 @@ O módulo `budget` (prefixo `/api/v1/budget`) é o experimento de idempotência 
 
 O stream `/budget/balance/stream` usa o padrão outbox: a cada 5s faz poll em `Ledger` filtrando por `userId` e `publishedAt: null`, marca as linhas encontradas como publicadas e emite o `Balance` atual daquele usuário. `Ledger` funciona como fila (cursor `publishedAt`, entrega at-least-once) e `distinctUntilChanged` evita reemitir o mesmo estado.
 
-As rotas de produtos usam o prefixo `/api/v1/products` e exigem `accessToken` (Bearer). `GET /products` e `GET /products/search` recebem os parâmetros por query string (`@Query()`).
+As rotas de posts usam o prefixo `/api/v1/posts` e exigem `accessToken` (Bearer). `GET /posts` e `GET /posts/search` recebem os parâmetros por query string (`@Query()`). Os posts ficam no PostgreSQL (Prisma), com `user_id` referenciando `users.id` (FK).
 
-| Método   | Rota               | Autenticação         | Finalidade                                                                                                                                       |
-| -------- | ------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET`    | `/products`        | Bearer `accessToken` | Lista produtos com paginação por cursor: `pageSize` (default `10`) e `pageToken` (opcionais, na query string)                             |
-| `GET`    | `/products/search` | Bearer `accessToken` | Busca full-text por `terms` (query string), paginada por cursor, usando `websearch_to_tsquery` + `ts_rank` contra a coluna `searchVector` |
-| `GET`    | `/products/:slug`  | Bearer `accessToken` | Busca produto pelo `slug` (identificador único e amigável)                                                                                       |
-| `POST`   | `/products`        | Bearer `accessToken` | Cria produto. `slug` é opcional no corpo — se omitido, é gerado a partir de `name` (`slugfy`)                                                    |
-| `PUT`    | `/products/:id`    | Bearer `accessToken` | Atualiza produto                                                                                                                                 |
-| `DELETE` | `/products/:id`    | Bearer `accessToken` | Remove produto — soft delete (marca `deletedAt`, não apaga a linha; mesma extensão do `PrismaService` usada no resto do projeto)                 |
+| Método   | Rota            | Autenticação         | Finalidade                                                                                                                       |
+| -------- | --------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/posts`        | Bearer `accessToken` | Lista posts com paginação por cursor: `pageSize` (default `10`) e `pageToken` (opcionais, na query string)                        |
+| `GET`    | `/posts/search` | Bearer `accessToken` | Busca full-text por `terms` (query string), paginada por cursor, usando `websearch_to_tsquery` + `ts_rank` contra `searchVector` |
+| `GET`    | `/posts/:slug`  | Bearer `accessToken` | Busca post pelo `slug` (identificador único e amigável)                                                                          |
+| `POST`   | `/posts`        | Bearer `accessToken` | Cria post. `slug` é opcional no corpo — se omitido, é gerado a partir de `title` (`slugfy`)                                      |
+| `PUT`    | `/posts/:id`    | Bearer `accessToken` | Atualiza post (preenche `updatedAt`). `id` inexistente responde `404`                                                            |
+| `DELETE` | `/posts/:id`    | Bearer `accessToken` | Remove post — soft delete (marca `deletedAt`, não apaga a linha; extensão do `PrismaService`). `id` inexistente responde `404`   |
 
-A listagem usa paginação por cursor: `pageToken` é o `id` do último item da página anterior, codificado em base64. Quando a página retornada tem exatamente `pageSize` itens, a resposta inclui um novo `pageToken` (base64 do `id` do último registro); do contrário `pageToken` vem `null`, indicando fim da listagem. A busca (`/products/search`) segue a mesma lógica, mas o cursor combina `rank,id` (posição no ranking de relevância + desempate por `id`), já que a ordenação é por `ts_rank` e não por `id`.
+A listagem usa paginação por cursor: `pageToken` é o `id` do último item da página anterior, codificado em base64. Quando a página retornada tem exatamente `pageSize` itens, a resposta inclui um novo `pageToken` (base64 do `id` do último registro); do contrário `pageToken` vem `null`, indicando fim da listagem. A busca (`/posts/search`) segue a mesma lógica, mas o cursor combina `rank,id` (posição no ranking de relevância + desempate por `id`), já que a ordenação é por `ts_rank` e não por `id`.
 
-A coluna `searchVector` (`tsvector`, `Unsupported` no `schema.prisma`) é mantida por uma trigger de banco (`product_tsvector_update_trigger`, ver seção Prisma) que recalcula o vetor a partir de `name` (peso `A`) e `description` (peso `B`) a cada `INSERT`/`UPDATE`. A busca roda via `$queryRaw` (Prisma não modela full-text search declarativamente) selecionando colunas explícitas — `SELECT *` quebraria a deserialização, já que o driver não sabe converter o tipo `tsvector`.
+A coluna `searchVector` (`tsvector`, `Unsupported` no `schema.prisma`) é mantida por uma trigger de banco (`post_tsvector_update_trigger`, ver seção Prisma) que recalcula o vetor a partir de `title` (peso `A`), `excerpt` (peso `B`) e `content` (peso `C`) a cada `INSERT`/`UPDATE`, com a configuração `portuguese`. A busca roda via `$queryRaw` (Prisma não modela full-text search declarativamente) selecionando colunas explícitas — `SELECT *` quebraria a deserialização, já que o driver não sabe converter o tipo `tsvector`.
+
+As rotas de produtos usam o prefixo `/api/v1/products` e exigem `accessToken` (Bearer). Os produtos ficam no MongoDB (módulo `products`, coleção `products`), com `_id` UUIDv7 e `slug` único. A busca usa um índice de texto em `name` (peso 10) e `description` (peso 9), idioma `portuguese`; o Mongo aceita um só índice de texto por coleção, então ao trocar os campos é preciso dropar o antigo (ou `syncIndexes()`).
+
+| Método   | Rota               | Autenticação         | Finalidade                                                                                                          |
+| -------- | ------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/products`        | Bearer `accessToken` | Lista produtos com paginação por cursor: `pageSize` (default `10`) e `pageToken` (opcionais, na query string)       |
+| `GET`    | `/products/search` | Bearer `accessToken` | Busca por `terms` (query string) com índice de texto do MongoDB (`$text`), paginada por cursor `rank,id`            |
+| `GET`    | `/products/:slug`  | Bearer `accessToken` | Busca produto pelo `slug`                                                                                           |
+| `POST`   | `/products`        | Bearer `accessToken` | Cria produto. `slug` é opcional no corpo — se omitido, é gerado a partir de `name` (`slugfy`)                       |
+| `PUT`    | `/products/:id`    | Bearer `accessToken` | Atualiza produto                                                                                                    |
+| `DELETE` | `/products/:id`    | Bearer `accessToken` | Remove produto (`deleteOne`, remoção física — não há soft delete no MongoDB)                                        |
+
+A listagem usa o mesmo esquema de `pageToken` (base64 do `id`), mas a comparação do cursor é feita com `$expr` (`{ $gt: ['$_id', UUID] }`), porque o schema `UUID` do Mongoose não aceita `$gt`/`$lt` no cast de query. A busca é um `aggregate` (`$match` com `$text` → `$addFields` com `textScore` como `rank` → `$match` do cursor `(rank desc, _id asc)` → `$sort` → `$limit`), já que `textScore` não é filtrável em `find()`. O status é o enum `ProductStatus` (`IN_STOCK`, `OUT_STOCK`).
 
 As rotas de carrinho usam o prefixo `/api/v1/cart` e exigem `accessToken` (Bearer). O carrinho é persistido no MongoDB (módulo `cart`), com `_id` UUIDv7 e expiração automática por inatividade (índice TTL).
 
@@ -493,9 +515,9 @@ Esperado: 10 respostas `401` e 5 `429` (a ordem de saída pode variar).
 
 ## Prisma
 
-O schema fica dividido por domínio em `prisma/schema/` (`user.prisma`, `bank.prisma`, `ledger.prisma`, `balance.prisma`, `session.prisma`, `products.prisma`), mais `schema.prisma` com o bloco `generator`/`datasource` — o Prisma CLI funde todos os arquivos da pasta automaticamente. Configuração de conexão e caminho do schema fica em `prisma7.config.ts`, que monta a connection string a partir das mesmas `POSTGRES_*` vars usadas pelo `PrismaService` em runtime (ver seção Configuração).
+O schema fica dividido por domínio em `prisma/schema/` (`user.prisma`, `bank.prisma`, `ledger.prisma`, `balance.prisma`, `session.prisma`, `posts.prisma`), mais `schema.prisma` com o bloco `generator`/`datasource` — o Prisma CLI funde todos os arquivos da pasta automaticamente. Configuração de conexão e caminho do schema fica em `prisma7.config.ts`, que monta a connection string a partir das mesmas `POSTGRES_*` vars usadas pelo `PrismaService` em runtime (ver seção Configuração).
 
-O model `Products` tem `slug` com constraint `@unique` (identificador amigável, alternativo ao `id`) e `createdAt` com `@default(now())` — diferença em relação à maioria dos outros models do projeto, que preenchem `createdAt` manualmente na aplicação.
+O model `Posts` tem `slug` com constraint `@unique` (identificador amigável, alternativo ao `id`), `authorId` (`user_id`, `@db.Uuid`) com relação para `User` e `createdAt` com `@default(now())` — diferença em relação à maioria dos outros models do projeto, que preenchem `createdAt` manualmente na aplicação. O trigger de `searchVector` vive em SQL puro dentro da migration (o Prisma não o gera), e a tabela `products` foi removida do Postgres numa migration própria.
 
 ```bash
 # gerar o Prisma Client a partir do schema
@@ -528,7 +550,7 @@ Popula a tabela `banks` com as principais instituições financeiras do Brasil (
 
 Também popula a tabela `posts` com 408 posts fictícios (artigos sobre jogos retro, em português) — `seeds/postgres/posts.seed.ts`, gerado programaticamente combinando 51 jogos clássicos com 8 ângulos de artigo (review, curiosidades, guia, coleção, legado, speedrun, trilha sonora, memória afetiva), inserido em lotes via `pg`. `title`/`slug` incorporam jogo e ângulo, garantindo unicidade (`slug` tem `@unique`). Status alterna entre `PUBLISHED` e `DRAFT` (2:1) e todos os posts usam o mesmo `user_id`, de um usuário `seed.author@example.com` criado se não existir. Idempotente (`ON CONFLICT (slug) DO NOTHING`).
 
-A coleção `products` do MongoDB recebe 2000 produtos (`seeds/mongo/products.seed.ts`), também idempotente (upsert por `slug`).
+A coleção `products` do MongoDB recebe 2000 produtos de jogos retro (`seeds/mongo/products.seed.ts`; jogo × condição × edição × região, cortado em 2000), também idempotente (upsert por `slug` via `bulkWrite`). O runner (`seeds/index.ts`) aceita o alvo como argumento (`postgres`, `mongo`; sem argumento roda os dois).
 
 ## Testes
 
@@ -551,7 +573,7 @@ Cobertura por módulo:
 - `auth`, `banks` e `clock`: testes unitários de controllers, services, guards e strategies.
 - `budget`: `budget.service` (facade), `balance.service` e `ledger.service` cobertos; controller e `IdempotencyInterceptor` sem testes.
 - `shared/decorators`: spec do `is-tax-id` em `tests/`.
-- `cart` e `products`: pastas `tests/` vazias.
+- `cart`, `posts` e `products`: pastas `tests/` vazias.
 - End-to-end: só o módulo `banks` (`banks.e2e-spec.ts`).
 
 Todos os `it` estão em inglês; nomes de `describe` e mensagens de negócio (exceptions, DTOs) seguem em português.
@@ -568,7 +590,7 @@ Todos os `it` estão em inglês; nomes de `describe` e mensagens de negócio (ex
 - Estudar observabilidade e tratamento global de erros.
 - Adicionar um detector de anomalias comportamentais anti-fraude.
 - Adicionar um conciliador de saldos (real-time) que dispara um alert para o backoffice em caso de discrepância.
-- Adicionar testes pro módulo `cart` (controller, service, repository) — hoje sem cobertura nenhuma.
+- Adicionar testes pros módulos `cart`, `posts` e `products` (controller, service, repository) — hoje sem cobertura nenhuma.
 - Adicionar testes pros decorators `@UseCircuitBrake` e `@UseBulkhead` e pro rate limit (`ThrottlerGuard`).
 - Mover os contadores do rate limit pra um storage compartilhado (Redis) e limitar de forma mais rígida as rotas sensíveis (login, 2FA) com `@Throttle`.
 

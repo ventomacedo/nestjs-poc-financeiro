@@ -17,6 +17,7 @@ const paths: Record<string, string[]> = Object.fromEntries(
 const config: Config = {
     moduleFileExtensions: ['js', 'json', 'ts'],
     rootDir: 'src',
+    modulePaths: ['<rootDir>'],
     testRegex: '.*(?<!\\.e2e)\\.spec\\.ts$',
     moduleNameMapper: {
         ...pathsToModuleNameMapper(paths, { prefix: '<rootDir>/' }),
@@ -26,7 +27,7 @@ const config: Config = {
         '^.+\\.(t|j)s$': 'ts-jest',
     },
     transformIgnorePatterns: [
-        'node_modules/(?!(@nestjs/passport|otplib|@otplib|@scure|@noble)/)',
+        'node_modules/(?!(@nestjs/passport|@nestjs/mongoose|otplib|@otplib|@scure|@noble)/)',
     ],
     collectCoverageFrom: ['**/*.(t|j)s'],
     coverageDirectory: '../coverage',
