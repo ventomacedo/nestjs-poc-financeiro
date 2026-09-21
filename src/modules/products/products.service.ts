@@ -27,6 +27,7 @@ export class ProductsService {
     ) {}
 
     private static readonly LIST_VERSION_KEY = 'products:list:version';
+    private static readonly LIST_TTL_MS = 60 * 60 * 1000;
 
     private async listKey(limit: number, pageToken?: string): Promise<string> {
         const version =
@@ -76,7 +77,7 @@ export class ProductsService {
         }
 
         const response = { data, pageToken: nextPageToken };
-        await this.cacheManager.set(key, response, 60 * 60 * 24);
+        await this.cacheManager.set(key, response, ProductsService.LIST_TTL_MS);
         return response;
     }
 

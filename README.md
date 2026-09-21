@@ -23,6 +23,7 @@ O código, as escolhas técnicas e a documentação refletem o estado atual do e
 - Estudar o padrão circuit breaker com `opossum`: decorator `@UseCircuitBrake` com os estados CLOSED/OPEN/HALF-OPEN, fallback resolvido por nome de método na instância e simulação de todos os estágios no módulo `banks`.
 - Estudar o padrão bulkhead com `opossum`: decorator `@UseBulkhead` limitando execuções simultâneas via `capacity`, com rejeição imediata e fallback quando o limite estoura.
 - Estudar rate limit com `@nestjs/throttler`: `ThrottlerGuard` global limitando requisições por cliente (10 por segundo), respondendo `429`.
+- Estudar cache-aside com Redis (`@nestjs/cache-manager` + `@keyv/redis`): cache por página de uma listagem paginada por cursor e invalidação por versão da chave (módulo `products`).
 - Manter os seeders independentes do ORM (pasta `seeds/` na raiz), populando Postgres (`banks`, `posts`) e MongoDB (`products`) de forma idempotente.
 - Recuperar familiaridade com testes, configuração e execução de aplicações backend.
 
@@ -346,14 +347,14 @@ A rota de relógio usa o prefixo `/api/v1/clock` e exige `accessToken` (Bearer).
 
 O módulo `budget` (prefixo `/api/v1/budget`) é o experimento de idempotência em operações financeiras — `Balance` é versionado (chave composta `userId` + `version`, sem coluna `id` própria) e `Ledger` registra cada lançamento (`RESERVED`/`REFUNDED`/`WITHDRAW`/`CREDITED`). As rotas de escrita (`reserve`, `cancel`, `confirm`) passam por `IdempotencyInterceptor`, que usa Redis como lock (`transactionId` do body vira chave, com TTL) pra impedir que a mesma requisição seja processada duas vezes.
 
-| Método | Rota                     | Autenticação         | Finalidade                                                                                                                                                                                                                                                                                                          |
-| ------ | ------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`  | `/budget/balance`        | Bearer `accessToken` | Busca o saldo (versão mais recente) do usuário autenticado                                                                                                                                                                                                                                                          |
-| `GET`  | `/budget/ledger`         | Bearer `accessToken` | Lista o histórico de lançamentos do usuário autenticado                                                                                                                                                                                                                                                             |
-| `POST` | `/budget/reserve`        | Bearer `accessToken` | Reserva um valor do saldo disponível (bloqueia), idempotente por `transactionId`                                                                                                                                                                                                                                    |
-| `POST` | `/budget/cancel`         | Bearer `accessToken` | Cancela uma reserva, devolve o valor ao saldo disponível                                                                                                                                                                                                                                                            |
-| `POST` | `/budget/confirm`        | Bearer `accessToken` | Confirma (efetiva) uma reserva como saque                                                                                                                                                                                                                                                                           |
-| `GET`  | `/budget/balance/stream` | Bearer `accessToken` | Stream SSE com o `Balance` atual do usuário, atualizado via padrão outbox (ver abaixo)                                                                                                                                                                                                                              |
+| Método | Rota                     | Autenticação         | Finalidade                                                                             |
+| ------ | ------------------------ | -------------------- | -------------------------------------------------------------------------------------- |
+| `GET`  | `/budget/balance`        | Bearer `accessToken` | Busca o saldo (versão mais recente) do usuário autenticado                             |
+| `GET`  | `/budget/ledger`         | Bearer `accessToken` | Lista o histórico de lançamentos do usuário autenticado                                |
+| `POST` | `/budget/reserve`        | Bearer `accessToken` | Reserva um valor do saldo disponível (bloqueia), idempotente por `transactionId`       |
+| `POST` | `/budget/cancel`         | Bearer `accessToken` | Cancela uma reserva, devolve o valor ao saldo disponível                               |
+| `POST` | `/budget/confirm`        | Bearer `accessToken` | Confirma (efetiva) uma reserva como saque                                              |
+| `GET`  | `/budget/balance/stream` | Bearer `accessToken` | Stream SSE com o `Balance` atual do usuário, atualizado via padrão outbox (ver abaixo) |
 
 O stream `/budget/balance/stream` usa o padrão outbox: a cada 5s faz poll em `Ledger` filtrando por `userId` e `publishedAt: null`, marca as linhas encontradas como publicadas e emite o `Balance` atual daquele usuário. `Ledger` funciona como fila (cursor `publishedAt`, entrega at-least-once) e `distinctUntilChanged` evita reemitir o mesmo estado.
 
@@ -361,7 +362,7 @@ As rotas de posts usam o prefixo `/api/v1/posts` e exigem `accessToken` (Bearer)
 
 | Método   | Rota            | Autenticação         | Finalidade                                                                                                                       |
 | -------- | --------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`    | `/posts`        | Bearer `accessToken` | Lista posts com paginação por cursor: `pageSize` (default `10`) e `pageToken` (opcionais, na query string)                        |
+| `GET`    | `/posts`        | Bearer `accessToken` | Lista posts com paginação por cursor: `pageSize` (default `10`) e `pageToken` (opcionais, na query string)                       |
 | `GET`    | `/posts/search` | Bearer `accessToken` | Busca full-text por `terms` (query string), paginada por cursor, usando `websearch_to_tsquery` + `ts_rank` contra `searchVector` |
 | `GET`    | `/posts/:slug`  | Bearer `accessToken` | Busca post pelo `slug` (identificador único e amigável)                                                                          |
 | `POST`   | `/posts`        | Bearer `accessToken` | Cria post. `slug` é opcional no corpo — se omitido, é gerado a partir de `title` (`slugfy`)                                      |
@@ -374,18 +375,18 @@ A coluna `searchVector` (`tsvector`, `Unsupported` no `schema.prisma`) é mantid
 
 As rotas de produtos usam o prefixo `/api/v1/products` e exigem `accessToken` (Bearer). Os produtos ficam no MongoDB (módulo `products`, coleção `products`), com `_id` UUIDv7 e `slug` único. A busca usa um índice de texto em `name` (peso 10) e `description` (peso 9), idioma `portuguese`; o Mongo aceita um só índice de texto por coleção, então ao trocar os campos é preciso dropar o antigo (ou `syncIndexes()`).
 
-| Método   | Rota               | Autenticação         | Finalidade                                                                                                          |
-| -------- | ------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `GET`    | `/products`        | Bearer `accessToken` | Lista produtos com paginação por cursor: `pageSize` (default `10`) e `pageToken` (opcionais, na query string)       |
-| `GET`    | `/products/search` | Bearer `accessToken` | Busca por `terms` (query string) com índice de texto do MongoDB (`$text`), paginada por cursor `rank,id`            |
-| `GET`    | `/products/:slug`  | Bearer `accessToken` | Busca produto pelo `slug`                                                                                           |
-| `POST`   | `/products`        | Bearer `accessToken` | Cria produto. `slug` é opcional no corpo — se omitido, é gerado a partir de `name` (`slugfy`)                       |
-| `PUT`    | `/products/:id`    | Bearer `accessToken` | Atualiza produto                                                                                                    |
-| `DELETE` | `/products/:id`    | Bearer `accessToken` | Remove produto (`deleteOne`, remoção física — não há soft delete no MongoDB)                                        |
+| Método   | Rota               | Autenticação         | Finalidade                                                                                                    |
+| -------- | ------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/products`        | Bearer `accessToken` | Lista produtos com paginação por cursor: `pageSize` (default `10`) e `pageToken` (opcionais, na query string) |
+| `GET`    | `/products/search` | Bearer `accessToken` | Busca por `terms` (query string) com índice de texto do MongoDB (`$text`), paginada por cursor `rank,id`      |
+| `GET`    | `/products/:slug`  | Bearer `accessToken` | Busca produto pelo `slug`                                                                                     |
+| `POST`   | `/products`        | Bearer `accessToken` | Cria produto. `slug` é opcional no corpo — se omitido, é gerado a partir de `name` (`slugfy`)                 |
+| `PUT`    | `/products/:id`    | Bearer `accessToken` | Atualiza produto                                                                                              |
+| `DELETE` | `/products/:id`    | Bearer `accessToken` | Remove produto (`deleteOne`, remoção física — não há soft delete no MongoDB)                                  |
 
 A listagem usa o mesmo esquema de `pageToken` (base64 do `id`), mas a comparação do cursor é feita com `$expr` (`{ $gt: ['$_id', UUID] }`), porque o schema `UUID` do Mongoose não aceita `$gt`/`$lt` no cast de query. A busca é um `aggregate` (`$match` com `$text` → `$addFields` com `textScore` como `rank` → `$match` do cursor `(rank desc, _id asc)` → `$sort` → `$limit`), já que `textScore` não é filtrável em `find()`. O status é o enum `ProductStatus` (`IN_STOCK`, `OUT_STOCK`).
 
-A listagem (`GET /products`) é cacheada em Redis (cache-aside, TTL de 60 s), uma entrada por combinação `pageSize` + `pageToken` (chave `products:list:v{versão}:{limit}:{pageToken}`). `POST`, `PUT` e `DELETE` invalidam todas as páginas de uma vez incrementando `products:list:version`, sem `SCAN`/`KEYS`. O `CacheModule` (em `app.module.ts`) usa a opção `stores` com `KeyvRedis`: a opção `store` da geração antiga (`cache-manager-redis-yet`) é ignorada pelo `cache-manager` v7 e o cache cairia silenciosamente em memória. `search` e `GET /products/:slug` não são cacheados.
+A listagem (`GET /products`) é cacheada em Redis (cache-aside); detalhes na seção [Cache](#cache).
 
 As rotas de carrinho usam o prefixo `/api/v1/cart` e exigem `accessToken` (Bearer). O carrinho é persistido no MongoDB (módulo `cart`), com `_id` UUIDv7 e expiração automática por inatividade (índice TTL).
 
@@ -404,11 +405,11 @@ Esses fluxos ainda fazem parte do exercício e serão refinados conforme o proje
 
 O projeto tem três mecanismos complementares. Cada um protege contra um tipo diferente de problema:
 
-| Mecanismo       | Protege contra                                                | Onde atua                                        | Implementação                                            | Quando dispara                                                                                   | Resposta                                    |
-| --------------- | ------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------- |
-| Circuit breaker | Dependência externa lenta ou falhando                         | Método de service que chama o serviço externo    | Decorator `@UseCircuitBrake` (`opossum`)                 | Taxa de erro passa de `errorThresholdPercentage` na janela                                      | Fallback (não chama o serviço)              |
-| Bulkhead        | Um recurso caro consumir tudo (concorrência excessiva)        | Método pesado de service                         | Decorator `@UseBulkhead` (`opossum`, `capacity`)         | Mais execuções simultâneas que `capacity`                                                        | Fallback (rejeição imediata, sem fila)      |
-| Rate limit      | Cliente enviando requisições demais (abuso, loop, força bruta) | Borda HTTP, todas as rotas, por cliente (IP)     | `ThrottlerModule` + `ThrottlerGuard` global (`@nestjs/throttler`) | Mais de `limit` requisições por `ttl` do mesmo cliente                                           | `429 Too Many Requests`                     |
+| Mecanismo       | Protege contra                                                 | Onde atua                                     | Implementação                                                     | Quando dispara                                             | Resposta                               |
+| --------------- | -------------------------------------------------------------- | --------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------- |
+| Circuit breaker | Dependência externa lenta ou falhando                          | Método de service que chama o serviço externo | Decorator `@UseCircuitBrake` (`opossum`)                          | Taxa de erro passa de `errorThresholdPercentage` na janela | Fallback (não chama o serviço)         |
+| Bulkhead        | Um recurso caro consumir tudo (concorrência excessiva)         | Método pesado de service                      | Decorator `@UseBulkhead` (`opossum`, `capacity`)                  | Mais execuções simultâneas que `capacity`                  | Fallback (rejeição imediata, sem fila) |
+| Rate limit      | Cliente enviando requisições demais (abuso, loop, força bruta) | Borda HTTP, todas as rotas, por cliente (IP)  | `ThrottlerModule` + `ThrottlerGuard` global (`@nestjs/throttler`) | Mais de `limit` requisições por `ttl` do mesmo cliente     | `429 Too Many Requests`                |
 
 Em resumo: o rate limit controla **quantas requisições cada cliente pode fazer**, o bulkhead controla **quantas execuções de um método rodam ao mesmo tempo** e o circuit breaker controla **se vale a pena chamar uma dependência que está falhando**. Uma requisição passa por eles nessa ordem: o guard de rate limit barra antes de qualquer lógica, e dentro do service o bulkhead e o circuit breaker protegem cada método decorado.
 
@@ -516,6 +517,50 @@ for i in $(seq 1 15); do curl -s -o /dev/null -w "%{http_code}\n" localhost:3000
 
 Esperado: 10 respostas `401` e 5 `429` (a ordem de saída pode variar).
 
+## Cache
+
+`GET /products` usa **cache-aside** em Redis, implementado em `ProductsService.find` com o `CACHE_MANAGER` do `@nestjs/cache-manager` (`cache-manager` v7). Só a listagem é cacheada; `search` e `GET /products/:slug` sempre vão ao MongoDB.
+
+Fluxo do `find`:
+
+1. Monta a chave da página: `products:list:v{versão}:{pageSize}:{pageToken ou "first"}`. O `pageToken` já identifica a página, então cada combinação `pageSize` + cursor é uma entrada própria.
+2. `cacheManager.get(chave)`: em caso de **hit**, devolve o valor sem consultar o MongoDB.
+3. Em caso de **miss**, executa a listagem normal (`list` + `displayStatus` + `pageToken` seguinte) e grava o resultado com `cacheManager.set` (TTL de 60 min, `60 * 60 * 1000` ms).
+
+**Invalidação por versão.** `create`, `update` e `delete` incrementam a chave `products:list:version` (sem expiração; ausente vale `0`). Como a versão faz parte da chave de cada página, todas as páginas antigas deixam de ser lidas de uma vez, em O(1), sem `SCAN`/`KEYS`. As entradas antigas ficam órfãs e expiram sozinhas pelo TTL de 60 minutos.
+
+Configuração (`src/app.module.ts`):
+
+```ts
+CacheModule.registerAsync({
+    isGlobal: true,
+    useFactory: () => ({
+        stores: [
+            new KeyvRedis(
+                `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT}`,
+            ),
+        ],
+        ttl: 60_000, // milissegundos na v7
+    }),
+});
+```
+
+Pontos que vale conhecer:
+
+- O `cache-manager` v7 lê a opção `stores` (instâncias Keyv, aqui `@keyv/redis`). A opção `store` da geração antiga (`cache-manager-redis-yet`) é **ignorada sem erro**, e o cache cairia em memória do processo, sem nenhuma chave no Redis.
+- O TTL da v7 é em **milissegundos** (na v5 era em segundos): `60 * 60` daria ~3,6 s, não 60 min. Um TTL `0` no `set` significa sem expiração (usado na chave de versão).
+- O cache é global: não há chave por usuário, e todos veem a mesma página.
+- O valor volta do Redis serializado em JSON, então `createdAt`/`updatedAt` chegam como string num hit — a resposta HTTP já os serializa assim.
+- Um produto criado só aparece na listagem depois da invalidação (imediata no mesmo processo que fez a escrita) ou do TTL. Com TTL de 60 min, escritas feitas fora da API (ex.: o seed, edição direta no Mongo) não invalidam o cache e só aparecem depois que a chave expirar ou a versão mudar por uma escrita via API.
+- O Redis usado é o mesmo do projeto (`REDIS_HOST`/`REDIS_PORT`); as chaves do cache ganham o prefixo do Keyv (`keyv::keyv:products:list:...`), sem colidir com as do lock de idempotência.
+
+Pra ver funcionando, chame a listagem duas vezes e confira as chaves:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" "localhost:3000/api/v1/products?pageSize=5" > /dev/null
+redis-cli --scan --pattern 'keyv*'
+```
+
 ## Prisma
 
 O schema fica dividido por domínio em `prisma/schema/` (`user.prisma`, `bank.prisma`, `ledger.prisma`, `balance.prisma`, `session.prisma`, `posts.prisma`), mais `schema.prisma` com o bloco `generator`/`datasource` — o Prisma CLI funde todos os arquivos da pasta automaticamente. Configuração de conexão e caminho do schema fica em `prisma7.config.ts`, que monta a connection string a partir das mesmas `POSTGRES_*` vars usadas pelo `PrismaService` em runtime (ver seção Configuração).
@@ -594,6 +639,7 @@ Todos os `it` estão em inglês; nomes de `describe` e mensagens de negócio (ex
 - Adicionar um detector de anomalias comportamentais anti-fraude.
 - Adicionar um conciliador de saldos (real-time) que dispara um alert para o backoffice em caso de discrepância.
 - Adicionar testes pros módulos `cart`, `posts` e `products` (controller, service, repository) — hoje sem cobertura nenhuma.
+- Adicionar testes do cache de `ProductsService.find` (hit, miss e invalidação por versão), mockando `CACHE_MANAGER`.
 - Adicionar testes pros decorators `@UseCircuitBrake` e `@UseBulkhead` e pro rate limit (`ThrottlerGuard`).
 - Mover os contadores do rate limit pra um storage compartilhado (Redis) e limitar de forma mais rígida as rotas sensíveis (login, 2FA) com `@Throttle`.
 
