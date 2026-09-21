@@ -1,15 +1,21 @@
 import { Module } from '@nestjs/common';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
-import { PrismaProductsRepository } from './repository/prisma-products.repository';
+import { MongoDBProductsRepository } from './repository/mongo-products.repository';
 import { PRODUCTS_REPOSITORY } from './repository/products.repository';
+import { MongooseModule } from '@nestjs/mongoose';
+import { ProductsSchema } from 'database/mongodb/schemas';
 
 @Module({
-    imports: [],
+    imports: [
+        MongooseModule.forFeature([
+            { name: 'Products', schema: ProductsSchema },
+        ]),
+    ],
     controllers: [ProductsController],
     providers: [
         ProductsService,
-        { provide: PRODUCTS_REPOSITORY, useClass: PrismaProductsRepository },
+        { provide: PRODUCTS_REPOSITORY, useClass: MongoDBProductsRepository },
     ],
     exports: [],
 })

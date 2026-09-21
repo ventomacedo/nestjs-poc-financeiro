@@ -20,7 +20,10 @@
         "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
         "test:e2e": "jest --config ./test/jest-e2e.json",
         "migration:generate": "drizzle-kit generate",
-        "migration:run": "drizzle-kit migrate"
+        "migration:run": "drizzle-kit migrate",
+        "seed": "ts-node seeds/index.ts",
+        "seed:postgres": "ts-node seeds/index.ts postgres",
+        "seed:mongo": "ts-node seeds/index.ts mongo"
     },
     "dependencies": {
         "@date-fns/tz": "^1.5.0",

@@ -1,4 +1,4 @@
-import { ProductStatus } from '../repository/prisma-products.repository';
+import { ProductStatus } from '../repository/mongo-products.repository';
 
 export const productStatusMapping = {
     IN_STOCK: 'Em estoque',

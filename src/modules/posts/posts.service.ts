@@ -1,4 +1,10 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+    Inject,
+    Injectable,
+    Logger,
+    NotFoundException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma';
 import {
     type IPostsInterface,
     POSTS_REPOSITORY,
@@ -93,10 +99,31 @@ export class PostsService {
         id,
         data: UpdatePostsRequestDto,
     ): Promise<Posts | null> {
-        return await this.Posts.update(id, data);
+        try {
+            return await this.Posts.update(id, data);
+        } catch (error) {
+            if (this.isRecordNotFound(error)) {
+                throw new NotFoundException(`Post ${id} não encontrado`);
+            }
+            throw error;
+        }
     }
 
     public async delete(id: string): Promise<void> {
-        await this.Posts.delete(id);
+        try {
+            await this.Posts.delete(id);
+        } catch (error) {
+            if (this.isRecordNotFound(error)) {
+                throw new NotFoundException(`Post ${id} não encontrado`);
+            }
+            throw error;
+        }
+    }
+
+    private isRecordNotFound(error: unknown): boolean {
+        return (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === 'P2025'
+        );
     }
 }

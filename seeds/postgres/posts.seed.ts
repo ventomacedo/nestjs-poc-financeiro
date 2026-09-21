@@ -1,16 +1,10 @@
-import { slugfy } from './../../src/shared/utils/functions';
+import { slugfy } from '../../src/shared/utils/functions';
 import { uuidv7 } from 'uuidv7';
 import { Client } from 'pg';
 import * as argon2 from 'argon2';
+import { CLASSIC_GAMES, ClassicGame } from '../data/classic-games';
 
 type PostStatus = 'PUBLISHED' | 'DRAFT';
-
-interface ClassicGame {
-    title: string;
-    platform: string;
-    genre: string;
-    year: number;
-}
 
 interface PostRow {
     id: string;
@@ -23,209 +17,6 @@ interface PostRow {
     createdAt: Date;
 }
 
-const CLASSIC_GAMES: ClassicGame[] = [
-    {
-        title: 'Super Mario Bros.',
-        platform: 'NES',
-        genre: 'Plataforma',
-        year: 1985,
-    },
-    {
-        title: 'The Legend of Zelda',
-        platform: 'NES',
-        genre: 'Aventura',
-        year: 1986,
-    },
-    { title: 'Metroid', platform: 'NES', genre: 'Aventura', year: 1986 },
-    { title: 'Mega Man 2', platform: 'NES', genre: 'Ação', year: 1988 },
-    { title: 'Castlevania', platform: 'NES', genre: 'Ação', year: 1986 },
-    { title: 'Contra', platform: 'NES', genre: 'Tiro', year: 1987 },
-    { title: 'Duck Hunt', platform: 'NES', genre: 'Tiro', year: 1984 },
-    { title: 'Donkey Kong', platform: 'NES', genre: 'Plataforma', year: 1986 },
-    { title: 'Galaga', platform: 'NES', genre: 'Tiro', year: 1988 },
-    { title: 'Tetris', platform: 'Game Boy', genre: 'Puzzle', year: 1989 },
-    {
-        title: 'Super Mario Land',
-        platform: 'Game Boy',
-        genre: 'Plataforma',
-        year: 1989,
-    },
-    {
-        title: "Kirby's Dream Land",
-        platform: 'Game Boy',
-        genre: 'Plataforma',
-        year: 1992,
-    },
-    {
-        title: 'Super Mario World',
-        platform: 'SNES',
-        genre: 'Plataforma',
-        year: 1990,
-    },
-    {
-        title: 'The Legend of Zelda: A Link to the Past',
-        platform: 'SNES',
-        genre: 'Aventura',
-        year: 1991,
-    },
-    { title: 'Super Metroid', platform: 'SNES', genre: 'Aventura', year: 1994 },
-    { title: 'Chrono Trigger', platform: 'SNES', genre: 'RPG', year: 1995 },
-    { title: 'Final Fantasy VI', platform: 'SNES', genre: 'RPG', year: 1994 },
-    { title: 'EarthBound', platform: 'SNES', genre: 'RPG', year: 1994 },
-    {
-        title: 'Donkey Kong Country',
-        platform: 'SNES',
-        genre: 'Plataforma',
-        year: 1994,
-    },
-    { title: 'Street Fighter II', platform: 'SNES', genre: 'Luta', year: 1992 },
-    {
-        title: 'Super Mario Kart',
-        platform: 'SNES',
-        genre: 'Corrida',
-        year: 1992,
-    },
-    { title: 'F-Zero', platform: 'SNES', genre: 'Corrida', year: 1990 },
-    { title: 'Star Fox', platform: 'SNES', genre: 'Tiro', year: 1993 },
-    {
-        title: 'Sonic the Hedgehog',
-        platform: 'Mega Drive',
-        genre: 'Plataforma',
-        year: 1991,
-    },
-    {
-        title: 'Sonic the Hedgehog 2',
-        platform: 'Mega Drive',
-        genre: 'Plataforma',
-        year: 1992,
-    },
-    {
-        title: 'Streets of Rage 2',
-        platform: 'Mega Drive',
-        genre: 'Luta',
-        year: 1992,
-    },
-    { title: 'Golden Axe', platform: 'Mega Drive', genre: 'Ação', year: 1989 },
-    {
-        title: 'Altered Beast',
-        platform: 'Mega Drive',
-        genre: 'Ação',
-        year: 1988,
-    },
-    {
-        title: 'Gunstar Heroes',
-        platform: 'Mega Drive',
-        genre: 'Tiro',
-        year: 1993,
-    },
-    {
-        title: 'ToeJam & Earl',
-        platform: 'Mega Drive',
-        genre: 'Aventura',
-        year: 1991,
-    },
-    {
-        title: 'Phantasy Star IV',
-        platform: 'Mega Drive',
-        genre: 'RPG',
-        year: 1993,
-    },
-    {
-        title: 'Alex Kidd in Miracle World',
-        platform: 'Master System',
-        genre: 'Plataforma',
-        year: 1986,
-    },
-    {
-        title: 'Wonder Boy III',
-        platform: 'Master System',
-        genre: 'Plataforma',
-        year: 1988,
-    },
-    { title: 'Shinobi', platform: 'Master System', genre: 'Ação', year: 1987 },
-    {
-        title: 'Pac-Man',
-        platform: 'Atari 2600',
-        genre: 'Labirinto',
-        year: 1982,
-    },
-    {
-        title: 'Space Invaders',
-        platform: 'Atari 2600',
-        genre: 'Tiro',
-        year: 1980,
-    },
-    { title: 'Frogger', platform: 'Atari 2600', genre: 'Ação', year: 1982 },
-    { title: 'Q*bert', platform: 'Atari 2600', genre: 'Puzzle', year: 1983 },
-    {
-        title: 'Pitfall!',
-        platform: 'Atari 2600',
-        genre: 'Aventura',
-        year: 1982,
-    },
-    { title: 'River Raid', platform: 'Atari 2600', genre: 'Tiro', year: 1982 },
-    {
-        title: 'Adventure',
-        platform: 'Atari 2600',
-        genre: 'Aventura',
-        year: 1979,
-    },
-    {
-        title: 'Crash Bandicoot',
-        platform: 'PlayStation',
-        genre: 'Plataforma',
-        year: 1996,
-    },
-    {
-        title: 'Spyro the Dragon',
-        platform: 'PlayStation',
-        genre: 'Plataforma',
-        year: 1998,
-    },
-    {
-        title: 'Final Fantasy VII',
-        platform: 'PlayStation',
-        genre: 'RPG',
-        year: 1997,
-    },
-    {
-        title: 'Metal Gear Solid',
-        platform: 'PlayStation',
-        genre: 'Ação',
-        year: 1998,
-    },
-    {
-        title: 'Resident Evil',
-        platform: 'PlayStation',
-        genre: 'Terror',
-        year: 1996,
-    },
-    { title: 'Tekken 3', platform: 'PlayStation', genre: 'Luta', year: 1998 },
-    {
-        title: 'Gran Turismo',
-        platform: 'PlayStation',
-        genre: 'Corrida',
-        year: 1997,
-    },
-    {
-        title: 'Super Mario 64',
-        platform: 'Nintendo 64',
-        genre: 'Plataforma',
-        year: 1996,
-    },
-    {
-        title: 'GoldenEye 007',
-        platform: 'Nintendo 64',
-        genre: 'Tiro',
-        year: 1997,
-    },
-    {
-        title: 'The Legend of Zelda: Ocarina of Time',
-        platform: 'Nintendo 64',
-        genre: 'Aventura',
-        year: 1998,
-    },
-];
 
 interface PostAngle {
     title: (game: ClassicGame) => string;
@@ -379,6 +170,7 @@ async function ensureAuthor(client: Client): Promise<string> {
 export async function seedPosts(client: Client): Promise<number> {
     const authorId = await ensureAuthor(client);
     const posts = generatePosts(authorId);
+    let inserted = 0;
 
     for (let start = 0; start < posts.length; start += BATCH_SIZE) {
         const batch = posts.slice(start, start + BATCH_SIZE);
@@ -398,11 +190,12 @@ export async function seedPosts(client: Client): Promise<number> {
             return `(${COLUMNS.map((_, colIndex) => `$${base + colIndex + 1}`).join(', ')})`;
         });
 
-        await client.query(
-            `INSERT INTO posts (${COLUMNS.join(', ')}) VALUES ${rows.join(', ')}`,
+        const result = await client.query(
+            `INSERT INTO posts (${COLUMNS.join(', ')}) VALUES ${rows.join(', ')} ON CONFLICT (slug) DO NOTHING`,
             values,
         );
+        inserted += result.rowCount ?? 0;
     }
 
-    return posts.length;
+    return inserted;
 }

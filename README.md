@@ -148,11 +148,18 @@ prisma/
 │   ├── balance.prisma
 │   ├── session.prisma
 │   └── products.prisma   # coluna Unsupported("tsvector") + índice GIN pro full-text search
-├── migrations/
-├── seeds/
+└── migrations/
+
+seeds/   # independente do Prisma
+├── index.ts   # runner (`yarn seed [postgres|mongo]`)
+├── data/classic-games.ts   # 51 jogos clássicos usados pelos seeders
+├── postgres/
+│   ├── index.ts
 │   ├── banks.seed.sql   # principais instituições financeiras do Brasil
-│   └── posts.seed.ts      # gera 408 posts (jogos retro) combinando 51 jogos x 8 ângulos de artigo
-└── seed.ts   # runner do seed (`npx prisma db seed`)
+│   └── posts.seed.ts   # gera 408 posts (jogos retro) combinando 51 jogos x 8 ângulos de artigo
+└── mongo/
+    ├── index.ts
+    └── products.seed.ts   # gera 2000 produtos (jogos retro) na coleção `products`
 
 test/
 └── jest-e2e.json   # config do Jest pros testes end-to-end (*.e2e-spec.ts)
@@ -512,12 +519,16 @@ Mudanças de schema seguem via `migrate dev`, e `npx prisma migrate status` conf
 ### Seed
 
 ```bash
-npx prisma db seed
+yarn seed            # postgres + mongo
+yarn seed:postgres   # banks + posts (também roda via `npx prisma db seed`)
+yarn seed:mongo      # products
 ```
 
-Popula a tabela `banks` com as principais instituições financeiras do Brasil (`prisma/seeds/banks.seed.sql`, executado por `prisma/seed.ts` via `pg`). Idempotente (`WHERE NOT EXISTS` por `tax_id`, já que a tabela não tem constraint de unicidade nessa coluna) — pode rodar mais de uma vez sem duplicar. O comando também dispara automaticamente depois de `npx prisma migrate dev`. ISPB/CNPJ/COMPE dessa seed valem como dado de estudo; confira contra a lista oficial do Bacen antes de usar em produção.
+Popula a tabela `banks` com as principais instituições financeiras do Brasil (`seeds/postgres/banks.seed.sql`, executado por `seeds/postgres/index.ts` via `pg`). Idempotente (`WHERE NOT EXISTS` por `tax_id`, já que a tabela não tem constraint de unicidade nessa coluna) — pode rodar mais de uma vez sem duplicar. O comando também dispara automaticamente depois de `npx prisma migrate dev`. ISPB/CNPJ/COMPE dessa seed valem como dado de estudo; confira contra a lista oficial do Bacen antes de usar em produção.
 
-Também popula a tabela `posts` com 408 posts fictícios (artigos sobre jogos retro, em português) — `prisma/seeds/posts.seed.ts`, gerado programaticamente combinando 51 jogos clássicos com 8 ângulos de artigo (review, curiosidades, guia, coleção, legado, speedrun, trilha sonora, memória afetiva), inserido em lotes via `pg`. `title`/`slug` incorporam jogo e ângulo, garantindo unicidade (`slug` tem `@unique`). Status alterna entre `PUBLISHED` e `DRAFT` (2:1) e todos os posts usam um mesmo `user_id` gerado a cada execução (sem FK). Não é idempotente: rodar de novo falha por violação de unicidade; `TRUNCATE TABLE posts;` antes se precisar repopular.
+Também popula a tabela `posts` com 408 posts fictícios (artigos sobre jogos retro, em português) — `seeds/postgres/posts.seed.ts`, gerado programaticamente combinando 51 jogos clássicos com 8 ângulos de artigo (review, curiosidades, guia, coleção, legado, speedrun, trilha sonora, memória afetiva), inserido em lotes via `pg`. `title`/`slug` incorporam jogo e ângulo, garantindo unicidade (`slug` tem `@unique`). Status alterna entre `PUBLISHED` e `DRAFT` (2:1) e todos os posts usam o mesmo `user_id`, de um usuário `seed.author@example.com` criado se não existir. Idempotente (`ON CONFLICT (slug) DO NOTHING`).
+
+A coleção `products` do MongoDB recebe 2000 produtos (`seeds/mongo/products.seed.ts`), também idempotente (upsert por `slug`).
 
 ## Testes
 

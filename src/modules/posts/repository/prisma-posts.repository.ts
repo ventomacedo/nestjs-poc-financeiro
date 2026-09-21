@@ -19,6 +19,7 @@ export class PrismaPostsRepository implements IPostsInterface {
             skip: cursorId ? 1 : 0,
             cursor: cursorId ? { id: cursorId } : undefined,
             orderBy: { id: 'asc' },
+            where: { status: 'PUBLISHED' },
         });
     }
 
@@ -69,7 +70,7 @@ export class PrismaPostsRepository implements IPostsInterface {
     public async update(id: string, data: Posts): Promise<Posts | null> {
         return await this.db.posts.update({
             where: { id },
-            data: { ...data },
+            data: { ...data, updatedAt: new Date() },
         });
     }
 

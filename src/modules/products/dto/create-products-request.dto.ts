@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { ProductStatus } from '../repository/prisma-products.repository';
+import type { ProductStatus } from '../repository/mongo-products.repository';
 import { IsNotEmpty, IsOptional } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 

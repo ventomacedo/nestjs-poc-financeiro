@@ -14,6 +14,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { PostsModule } from 'modules/posts';
+import { ProductModule } from 'modules/products';
 
 @Module({
     imports: [
@@ -27,6 +28,7 @@ import { PostsModule } from 'modules/posts';
         BudgetModule,
         RedisModule,
         PostsModule,
+        ProductModule,
         MongoDBModule,
         CartModule,
     ],

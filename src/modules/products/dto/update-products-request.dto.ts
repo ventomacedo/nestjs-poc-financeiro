@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import type { ProductStatus } from '../repository/prisma-products.repository';
-import { IsNotEmpty, IsOptional } from 'class-validator';
+import { IsOptional } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { ProductStatus } from '../repository/mongo-products.repository';
 
 @Injectable()
 export class UpdateProductsRequestDto {

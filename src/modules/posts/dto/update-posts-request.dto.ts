@@ -5,9 +5,11 @@ import { ApiProperty } from '@nestjs/swagger';
 
 @Injectable()
 export class UpdatePostsRequestDto {
+    @IsOptional()
     @ApiProperty({ description: 'Título que será usado para o slug' })
     title!: string;
 
+    @IsOptional()
     @ApiProperty({
         description: 'Autor é o usuários que está criando este post',
     })
@@ -21,6 +23,7 @@ export class UpdatePostsRequestDto {
     @ApiProperty({ description: 'Conteído do post' })
     content!: string;
 
+    @IsOptional()
     @ApiProperty({
         description: 'Status possíveis "PUBLISHED" | "DRAFT"',
     })

@@ -1,15 +1,15 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
-    type IProductsInterface,
+    IProductsRepository,
+    Product,
     PRODUCTS_REPOSITORY,
-    type Products,
 } from './repository/products.repository';
-import {
-    FindProductsResponseDto,
-    productStatusMapping,
-} from './dto/find-products-response.dto';
+import { FindProductsResponseDto } from './dto/find-products-response.dto';
 import { SearchProductsRequestDto } from './dto/search-products-request.dto';
-import { SearchProductsResponseDto } from './dto/search-products-response.dto';
+import {
+    productStatusMapping,
+    SearchProductsResponseDto,
+} from './dto/search-products-response.dto';
 import { CreateProductsRequestDto } from './dto/create-products-request.dto';
 import { slugfy } from '@shared/utils';
 import { UpdateProductsRequestDto } from './dto/update-products-request.dto';
@@ -20,7 +20,7 @@ export class ProductsService {
 
     constructor(
         @Inject(PRODUCTS_REPOSITORY)
-        private readonly products: IProductsInterface,
+        private readonly products: IProductsRepository,
     ) {}
 
     public async find(
@@ -31,7 +31,7 @@ export class ProductsService {
             ? Buffer.from(pageToken, 'base64').toString('ascii')
             : undefined;
 
-        const result = await this.products.find(limit, cursorId);
+        const result = await this.products.list(limit, cursorId);
         const data = result.map((item) => ({
             ...item,
             displayStatus: productStatusMapping[item.status],
@@ -50,8 +50,8 @@ export class ProductsService {
         return { data, pageToken: nextPageToken };
     }
 
-    public async findBySlug(id: string): Promise<Products | null> {
-        return await this.products.findBySlug(id);
+    public async findBySlug(slug: string): Promise<Product | null> {
+        return await this.products.getBySlug(slug);
     }
 
     public async search(
@@ -88,7 +88,7 @@ export class ProductsService {
 
     public async create(
         data: CreateProductsRequestDto,
-    ): Promise<Products | null> {
+    ): Promise<Product | null> {
         const slug = !data.slug ? slugfy(data.name) : data.slug;
         return await this.products.create({ ...data, slug });
     }
@@ -96,7 +96,7 @@ export class ProductsService {
     public async update(
         id,
         data: UpdateProductsRequestDto,
-    ): Promise<Products | null> {
+    ): Promise<Product | null> {
         return await this.products.update(id, data);
     }
 
