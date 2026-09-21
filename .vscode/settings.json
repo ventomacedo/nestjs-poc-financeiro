@@ -2,6 +2,8 @@
     "editor.tabSize": 4,
     "workbench.settings.useSplitJSON": false,
     "editor.fontFamily": "Fira code",
+    "editor.wordWrap": "wordWrapColumn",
+    "editor.wordWrapColumn": 240,
     "editor.formatOnSave": true,
     "editor.insertSpaces": true,
     "editor.codeActionsOnSave": { "source.fixAll": "explicit" },

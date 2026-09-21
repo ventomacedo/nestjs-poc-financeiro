@@ -33,6 +33,7 @@ O código, as escolhas técnicas e a documentação refletem o estado atual do e
 - NestJS
 - PostgreSQL
 - Redis (suporte ao estudo de idempotência), via cliente `ioredis`
+- Cache com `@nestjs/cache-manager` (`cache-manager` v7) e Redis via `@keyv/redis` — listagem de produtos
 - MongoDB com Mongoose (`mongoose` + `@nestjs/mongoose`) — carrinho de compras (módulo `cart`) e catálogo de produtos (módulo `products`)
 - Docker e Docker Compose
 - Prisma ORM (`@prisma/client`, driver adapter `@prisma/adapter-pg`), incluindo o preview feature `fullTextSearchPostgres` e tipo `Unsupported("tsvector")` pra busca full-text nativa do Postgres
@@ -383,6 +384,8 @@ As rotas de produtos usam o prefixo `/api/v1/products` e exigem `accessToken` (B
 | `DELETE` | `/products/:id`    | Bearer `accessToken` | Remove produto (`deleteOne`, remoção física — não há soft delete no MongoDB)                                        |
 
 A listagem usa o mesmo esquema de `pageToken` (base64 do `id`), mas a comparação do cursor é feita com `$expr` (`{ $gt: ['$_id', UUID] }`), porque o schema `UUID` do Mongoose não aceita `$gt`/`$lt` no cast de query. A busca é um `aggregate` (`$match` com `$text` → `$addFields` com `textScore` como `rank` → `$match` do cursor `(rank desc, _id asc)` → `$sort` → `$limit`), já que `textScore` não é filtrável em `find()`. O status é o enum `ProductStatus` (`IN_STOCK`, `OUT_STOCK`).
+
+A listagem (`GET /products`) é cacheada em Redis (cache-aside, TTL de 60 s), uma entrada por combinação `pageSize` + `pageToken` (chave `products:list:v{versão}:{limit}:{pageToken}`). `POST`, `PUT` e `DELETE` invalidam todas as páginas de uma vez incrementando `products:list:version`, sem `SCAN`/`KEYS`. O `CacheModule` (em `app.module.ts`) usa a opção `stores` com `KeyvRedis`: a opção `store` da geração antiga (`cache-manager-redis-yet`) é ignorada pelo `cache-manager` v7 e o cache cairia silenciosamente em memória. `search` e `GET /products/:slug` não são cacheados.
 
 As rotas de carrinho usam o prefixo `/api/v1/cart` e exigem `accessToken` (Bearer). O carrinho é persistido no MongoDB (módulo `cart`), com `_id` UUIDv7 e expiração automática por inatividade (índice TTL).
 

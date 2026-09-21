@@ -1,9 +1,4 @@
-import {
-    Inject,
-    Injectable,
-    Logger,
-    NotFoundException,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma';
 import {
     type IPostsInterface,
@@ -14,7 +9,7 @@ import { FindPostsResponseDto } from './dto/find-posts-response.dto';
 import { SearchPostsRequestDto } from './dto/search-posts-request.dto';
 import { SearchPostsResponseDto } from './dto/search-posts-response.dto';
 import { CreatePostsRequestDto } from './dto/create-posts-request.dto';
-import { slugfy } from '@shared/utils';
+import { decode64, encode64, slugfy } from '@shared/utils';
 import { UpdatePostsRequestDto } from './dto/update-posts-request.dto';
 import { postStatusMapping } from './repository/prisma-posts.repository';
 
@@ -31,9 +26,7 @@ export class PostsService {
         limit: number,
         pageToken?: string,
     ): Promise<FindPostsResponseDto> {
-        const cursorId = !!pageToken
-            ? Buffer.from(pageToken, 'base64').toString('ascii')
-            : undefined;
+        const cursorId = decode64(pageToken ?? '');
 
         const result = await this.Posts.find(limit, cursorId);
         const data = result.map((item) => ({
@@ -45,9 +38,7 @@ export class PostsService {
 
         if (data.length === limit) {
             const lastItem = data.at(-1);
-            nextPageToken = !!lastItem
-                ? Buffer.from(lastItem.id).toString('base64')
-                : null;
+            nextPageToken = encode64(lastItem?.id ?? '');
         }
 
         // this.logger.debug({ message: `new pageToke: ${nextPageToken}` });

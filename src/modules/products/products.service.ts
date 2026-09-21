@@ -11,25 +11,56 @@ import {
     SearchProductsResponseDto,
 } from './dto/search-products-response.dto';
 import { CreateProductsRequestDto } from './dto/create-products-request.dto';
-import { slugfy } from '@shared/utils';
+import { decode64, encode64, slugfy } from '@shared/utils';
 import { UpdateProductsRequestDto } from './dto/update-products-request.dto';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 
 @Injectable()
 export class ProductsService {
-    // private logger = new Logger(ProductsService.name);
+    private logger = new Logger(ProductsService.name);
 
     constructor(
         @Inject(PRODUCTS_REPOSITORY)
         private readonly products: IProductsRepository,
+        @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
     ) {}
+
+    private static readonly LIST_VERSION_KEY = 'products:list:version';
+
+    private async listKey(limit: number, pageToken?: string): Promise<string> {
+        const version =
+            (await this.cacheManager.get<number>(
+                ProductsService.LIST_VERSION_KEY,
+            )) ?? 0;
+        return `products:list:v${version}:${limit}:${pageToken ?? 'first'}`;
+    }
+
+    private async invalidateList(): Promise<void> {
+        const version =
+            (await this.cacheManager.get<number>(
+                ProductsService.LIST_VERSION_KEY,
+            )) ?? 0;
+        await this.cacheManager.set(
+            ProductsService.LIST_VERSION_KEY,
+            version + 1,
+            0,
+        );
+    }
 
     public async find(
         limit: number,
-        pageToken?: string,
+        pageToken: string = '',
     ): Promise<FindProductsResponseDto> {
-        const cursorId = !!pageToken
-            ? Buffer.from(pageToken, 'base64').toString('ascii')
-            : undefined;
+        const key = await this.listKey(limit, pageToken);
+        const cached =
+            await this.cacheManager.get<FindProductsResponseDto>(key);
+        if (cached) {
+            this.logger.debug(`Data from cache: ${key}`);
+            return cached;
+        }
+
+        const cursorId = decode64(pageToken);
 
         const result = await this.products.list(limit, cursorId);
         const data = result.map((item) => ({
@@ -41,13 +72,12 @@ export class ProductsService {
 
         if (data.length === limit) {
             const lastItem = data.at(-1);
-            nextPageToken = !!lastItem
-                ? Buffer.from(lastItem.id).toString('base64')
-                : null;
+            nextPageToken = encode64(lastItem?.id ?? '');
         }
 
-        // this.logger.debug({ message: `new pageToke: ${nextPageToken}` });
-        return { data, pageToken: nextPageToken };
+        const response = { data, pageToken: nextPageToken };
+        await this.cacheManager.set(key, response, 60 * 60 * 24);
+        return response;
     }
 
     public async findBySlug(slug: string): Promise<Product | null> {
@@ -60,9 +90,7 @@ export class ProductsService {
         const { terms, pageToken, pageSize } = dto;
         const _limit = pageSize ?? 10;
 
-        const pageTokenDecoded = pageToken
-            ? Buffer.from(pageToken, 'base64').toString('ascii')
-            : '';
+        const pageTokenDecoded = pageToken ? decode64(pageToken) : '';
 
         const [lastRank, lastId] = pageToken
             ? pageTokenDecoded.split(',')
@@ -90,17 +118,22 @@ export class ProductsService {
         data: CreateProductsRequestDto,
     ): Promise<Product | null> {
         const slug = !data.slug ? slugfy(data.name) : data.slug;
-        return await this.products.create({ ...data, slug });
+        const created = await this.products.create({ ...data, slug });
+        await this.invalidateList();
+        return created;
     }
 
     public async update(
         id,
         data: UpdateProductsRequestDto,
     ): Promise<Product | null> {
-        return await this.products.update(id, data);
+        const updated = await this.products.update(id, data);
+        await this.invalidateList();
+        return updated;
     }
 
     public async delete(id: string): Promise<void> {
         await this.products.delete(id);
+        await this.invalidateList();
     }
 }

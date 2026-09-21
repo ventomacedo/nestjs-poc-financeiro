@@ -34,3 +34,13 @@ export const decrypt = (input: string) => {
 
     return decrypted.toString('utf8');
 };
+
+export const encode64 = (input: string): string => {
+    if (!input) return '';
+    return Buffer.from(input).toString('base64');
+};
+
+export const decode64 = (input: string): string => {
+    if (!input) return '';
+    return Buffer.from(input, 'base64').toString('ascii');
+};
