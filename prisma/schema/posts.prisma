@@ -1,0 +1,23 @@
+enum PostStatus {
+    PUBLISHED
+    DRAFT
+}
+
+model Posts {
+    id        String     @id @default(uuid(7))
+    title     String     @map("title")
+    slug      String     @unique @map("slug")
+    excerpt   String     @map("excerpt")
+    content   String     @map("content")
+    authorId  String     @map("user_id") @db.Uuid
+    status    PostStatus @map("status")
+    createdAt DateTime   @default(now()) @map("created_at")
+    updatedAt DateTime?  @map("updated_at")
+    deletedAt DateTime?  @map("deleted_at")
+
+    searchVector Unsupported("tsvector")? @default(dbgenerated())
+    user         User                     @relation(fields: [authorId], references: [id])
+
+    @@index([searchVector], type: Gin)
+    @@map("posts")
+}

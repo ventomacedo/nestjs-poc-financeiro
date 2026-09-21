@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Client } from 'pg';
-import { seedProducts } from './seeds/products.seed';
+import { seedPosts } from './seeds/posts.seed';
 
 async function main() {
     const sql = readFileSync(
@@ -17,8 +17,8 @@ async function main() {
         await client.query(sql);
         console.log('Seed de banks aplicado com sucesso.');
 
-        const productsCount = await seedProducts(client);
-        console.log(`Seed de products aplicado com sucesso (${productsCount} registros).`);
+        const postsCount = await seedPosts(client);
+        console.log(`Seed de posts aplicado com sucesso (${postsCount} registros).`);
     } finally {
         await client.end();
     }

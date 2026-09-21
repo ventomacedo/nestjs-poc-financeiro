@@ -11,7 +11,8 @@ model User {
 
     ledgers  Ledger[]
     balances Balance[]
-    session Session[]
+    session  Session[]
+    posts    Posts[]
 
     @@map("users")
 }

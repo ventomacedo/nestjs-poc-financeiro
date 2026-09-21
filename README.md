@@ -151,7 +151,7 @@ prisma/
 ├── migrations/
 ├── seeds/
 │   ├── banks.seed.sql   # principais instituições financeiras do Brasil
-│   └── products.seed.ts   # gera ~2000 produtos (jogos retro) combinando título x condição x região x edição
+│   └── posts.seed.ts      # gera 408 posts (jogos retro) combinando 51 jogos x 8 ângulos de artigo
 └── seed.ts   # runner do seed (`npx prisma db seed`)
 
 test/
@@ -517,7 +517,7 @@ npx prisma db seed
 
 Popula a tabela `banks` com as principais instituições financeiras do Brasil (`prisma/seeds/banks.seed.sql`, executado por `prisma/seed.ts` via `pg`). Idempotente (`WHERE NOT EXISTS` por `tax_id`, já que a tabela não tem constraint de unicidade nessa coluna) — pode rodar mais de uma vez sem duplicar. O comando também dispara automaticamente depois de `npx prisma migrate dev`. ISPB/CNPJ/COMPE dessa seed valem como dado de estudo; confira contra a lista oficial do Bacen antes de usar em produção.
 
-Também popula a tabela `products` com 2040 produtos fictícios (jogos retro, nomes e descrições em português) — `prisma/seeds/products.seed.ts`, gerado programaticamente combinando 51 jogos clássicos (NES, SNES, Mega Drive, Master System, Atari 2600, Game Boy, PlayStation, Nintendo 64) com condição, região e edição (5 × 4 × 2 = 40 variações por jogo), e inserido em lotes via `pg`. `name`/`slug` incorporam as quatro dimensões (jogo, condição, edição, região), garantindo unicidade nas 2040 combinações — necessário porque `slug` tem constraint `@unique` no schema. Não é idempotente: rodar o seed de novo tenta reinserir os mesmos `slug`s e falha por violação de unicidade; truncar a tabela antes (`TRUNCATE TABLE products;`) se precisar popular de novo.
+Também popula a tabela `posts` com 408 posts fictícios (artigos sobre jogos retro, em português) — `prisma/seeds/posts.seed.ts`, gerado programaticamente combinando 51 jogos clássicos com 8 ângulos de artigo (review, curiosidades, guia, coleção, legado, speedrun, trilha sonora, memória afetiva), inserido em lotes via `pg`. `title`/`slug` incorporam jogo e ângulo, garantindo unicidade (`slug` tem `@unique`). Status alterna entre `PUBLISHED` e `DRAFT` (2:1) e todos os posts usam um mesmo `user_id` gerado a cada execução (sem FK). Não é idempotente: rodar de novo falha por violação de unicidade; `TRUNCATE TABLE posts;` antes se precisar repopular.
 
 ## Testes
 

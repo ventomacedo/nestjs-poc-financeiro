@@ -9,22 +9,24 @@ import { BanksModule } from '@banks';
 import { ClockModule } from '@clock';
 import { BudgetModule } from './modules/budget/budget.module';
 import { RedisModule } from './shared/redis/redis.module';
-import { ProductModule } from 'modules/products';
 import { CartModule } from './modules/cart/cart.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { PostsModule } from 'modules/posts';
 
 @Module({
     imports: [
         ConfigModule.forRoot({ isGlobal: true }),
         ThrottlerModule.forRoot([{ ttl: 1000, limit: 10 }]),
+        EventEmitterModule.forRoot(),
         DatabaseModule,
         AuthModule,
         BanksModule,
         ClockModule,
         BudgetModule,
         RedisModule,
-        ProductModule,
+        PostsModule,
         MongoDBModule,
         CartModule,
     ],
