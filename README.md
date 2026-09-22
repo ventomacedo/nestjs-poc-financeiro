@@ -636,6 +636,8 @@ Todos os `it` estão em inglês; nomes de `describe` e mensagens de negócio (ex
 - Terminar os testes do módulo `budget` (controller e `IdempotencyInterceptor`) e do `RedisService` — hoje sem cobertura nenhuma.
 - Adicionar testes end-to-end para os fluxos de autenticação e budget (`banks` já tem).
 - Estudar observabilidade e tratamento global de erros.
+- Instrumentar a aplicação com OpenTelemetry (traces/metrics/logs).
+- Isolar cada módulo em seu próprio schema no PostgreSQL, com roles restringindo joins entre schemas.
 - Adicionar um detector de anomalias comportamentais anti-fraude.
 - Adicionar um conciliador de saldos (real-time) que dispara um alert para o backoffice em caso de discrepância.
 - Adicionar testes pros módulos `cart`, `posts` e `products` (controller, service, repository) — hoje sem cobertura nenhuma.
