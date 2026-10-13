@@ -13,6 +13,7 @@ model User {
     balances Balance[]
     session  Session[]
     posts    Posts[]
+    orders   Order[]
 
     @@map("users")
 }

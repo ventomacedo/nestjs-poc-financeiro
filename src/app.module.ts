@@ -8,13 +8,14 @@ import { DatabaseModule, MongoDBModule } from '@database';
 import { BanksModule } from '@banks';
 import { ClockModule } from '@clock';
 import { BudgetModule } from './modules/budget/budget.module';
-import { RedisModule } from './shared/redis/redis.module';
+import { RedisModule } from '@shared';
 import { CartModule } from './modules/cart/cart.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { PostsModule } from 'modules/posts';
 import { ProductModule } from 'modules/products';
+import { OrderModule } from 'modules/order';
 import { CacheModule } from '@nestjs/cache-manager';
 import KeyvRedis from '@keyv/redis';
 
@@ -46,6 +47,7 @@ const RedisCacheModule = CacheModule.registerAsync({
         ProductModule,
         MongoDBModule,
         CartModule,
+        OrderModule,
     ],
     controllers: [AppController],
     providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }, AppService],

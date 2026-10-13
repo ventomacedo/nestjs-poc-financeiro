@@ -9,8 +9,7 @@ import {
     type IBankRepository,
 } from './repositories/bank.repository.interface';
 import axios from 'axios';
-import { UseBulkhead, UseCircuitBrake } from '@shared/decorators';
-import { delay } from '@shared/utils';
+import { UseBulkhead, UseCircuitBrake, delay } from '@shared';
 
 @Injectable()
 export class BanksService {

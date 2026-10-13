@@ -8,6 +8,7 @@ export const PRODUCTS_REPOSITORY = Symbol('PRODUCTS_REPOSITORY');
 export interface IProductsRepository {
     list(limit: number, lastId?: string): Promise<Products>;
     getBySlug(slug: string): Promise<Product | null>;
+    getById(id: string): Promise<Product | null>;
     search(params: {
         terms: string;
         pageSize: number;

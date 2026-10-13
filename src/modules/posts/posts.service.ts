@@ -9,7 +9,7 @@ import { FindPostsResponseDto } from './dto/find-posts-response.dto';
 import { SearchPostsRequestDto } from './dto/search-posts-request.dto';
 import { SearchPostsResponseDto } from './dto/search-posts-response.dto';
 import { CreatePostsRequestDto } from './dto/create-posts-request.dto';
-import { decode64, encode64, slugfy } from '@shared/utils';
+import { decode64, encode64, slugfy } from '@shared';
 import { UpdatePostsRequestDto } from './dto/update-posts-request.dto';
 import { postStatusMapping } from './repository/prisma-posts.repository';
 

@@ -1,0 +1,36 @@
+enum OrderStatus {
+    PENDING
+    RESERVED
+    CONFIRMED
+    CANCELLED
+    FAILED
+}
+
+model Order {
+    id            String      @id @default(uuid(7))
+    userId        String      @map("user_id") @db.Uuid
+    status        OrderStatus @default(PENDING)
+    total         Int         @default(0) @map("total")
+    transactionId String      @map("transaction_id") @unique
+    createdAt     DateTime    @default(now()) @map("created_at")
+    updatedAt     DateTime?   @updatedAt @map("updated_at")
+
+    user  User        @relation(fields: [userId], references: [id])
+    items OrderItem[]
+
+    @@index([userId])
+    @@map("orders")
+}
+
+model OrderItem {
+    id        String @id @default(uuid(7))
+    orderId   String @map("order_id")
+    productId String @map("product_id")
+    name      String
+    quantity  Int
+    price     Int    @map("price")
+
+    order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+    @@map("order_items")
+}

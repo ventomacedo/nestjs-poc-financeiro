@@ -18,7 +18,10 @@ src/
 │   ├── auth/                  # Autenticação + 2FA
 │   ├── banks/                 # Instituições financeiras
 │   ├── clock/                 # Exemplo de SSE
-│   └── budget/                # Experimento: idempotência + ledger/balance
+│   ├── budget/                # Experimento: idempotência + ledger/balance
+│   ├── cart/                  # Carrinho (MongoDB/Mongoose)
+│   ├── products/              # Catálogo (MongoDB/Mongoose)
+│   └── order/                 # Checkout (Postgres/Prisma): isolado de cart/products/budget, comunica só por evento (EventEmitter2)
 ├── database/                  # Camada de dados (Prisma)
 ├── shared/                    # Código compartilhado
 │   ├── decorators/

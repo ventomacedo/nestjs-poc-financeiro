@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { CartService } from './cart.service';
 import { JwthGuard } from '@auth';
-import { User } from '@shared/decorators';
+import { User } from '@shared';
 import { AddToCartRequestDto } from './dto/add-cart-request.dto';
 import { RemoveFromCartRequestDto } from './dto/remove-cart-request.dto';
 

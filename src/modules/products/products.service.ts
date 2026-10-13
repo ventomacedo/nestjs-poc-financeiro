@@ -11,7 +11,7 @@ import {
     SearchProductsResponseDto,
 } from './dto/search-products-response.dto';
 import { CreateProductsRequestDto } from './dto/create-products-request.dto';
-import { decode64, encode64, slugfy } from '@shared/utils';
+import { decode64, encode64, slugfy } from '@shared';
 import { UpdateProductsRequestDto } from './dto/update-products-request.dto';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
@@ -83,6 +83,10 @@ export class ProductsService {
 
     public async findBySlug(slug: string): Promise<Product | null> {
         return await this.products.getBySlug(slug);
+    }
+
+    public async findById(id: string): Promise<Product | null> {
+        return await this.products.getById(id);
     }
 
     public async search(

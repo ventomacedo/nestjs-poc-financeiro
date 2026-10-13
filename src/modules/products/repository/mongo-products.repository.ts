@@ -42,6 +42,10 @@ export class MongoDBProductsRepository implements IProductsRepository {
         return await this.db.findOne({ slug }).lean();
     }
 
+    public async getById(id: string): Promise<IProduct | null> {
+        return await this.db.findById(id).lean();
+    }
+
     public async search(params: {
         terms: string;
         pageSize: number;

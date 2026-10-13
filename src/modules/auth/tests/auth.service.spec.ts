@@ -15,7 +15,7 @@ jest.mock('argon2', () => ({
     verify: jest.fn(),
 }));
 
-jest.mock('@shared/utils', () => ({
+jest.mock('@shared', () => ({
     expTimeToDabase: jest.fn((exp: number) => new Date(exp * 1000)),
     encrypt: jest.fn((value: string) => `encrypted(${value})`),
     decrypt: jest.fn((value: string) =>

@@ -7,7 +7,9 @@ import { MongoDbCartRepository } from './repository/mongo-cart.repository';
 import { CartSchema } from 'database/mongodb/schemas';
 
 @Module({
-    imports: [MongooseModule.forFeature([{ name: 'Cart', schema: CartSchema }])],
+    imports: [
+        MongooseModule.forFeature([{ name: 'Cart', schema: CartSchema }]),
+    ],
     controllers: [CartController],
     providers: [
         CartService,

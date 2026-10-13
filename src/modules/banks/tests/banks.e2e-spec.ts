@@ -4,7 +4,7 @@ import request from 'supertest';
 import { AppModule } from '../../../app.module';
 import { PrismaService } from '@database';
 import { JwthGuard } from '@auth';
-import { RedisService } from '../../../shared/redis/redis.service';
+import { RedisService } from '@shared';
 
 describe('BanksController (e2e)', () => {
     let app: INestApplication;

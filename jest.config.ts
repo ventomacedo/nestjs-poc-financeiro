@@ -27,7 +27,7 @@ const config: Config = {
         '^.+\\.(t|j)s$': 'ts-jest',
     },
     transformIgnorePatterns: [
-        'node_modules/(?!(@nestjs/passport|@nestjs/mongoose|otplib|@otplib|@scure|@noble)/)',
+        'node_modules/(?!(@nestjs/passport|@nestjs/mongoose|@nestjs/cache-manager|cache-manager|@nestjs/event-emitter|eventemitter2|otplib|@otplib|@scure|@noble)/)',
     ],
     collectCoverageFrom: ['**/*.(t|j)s'],
     coverageDirectory: '../coverage',

@@ -24,6 +24,7 @@ O código, as escolhas técnicas e a documentação refletem o estado atual do e
 - Estudar o padrão bulkhead com `opossum`: decorator `@UseBulkhead` limitando execuções simultâneas via `capacity`, com rejeição imediata e fallback quando o limite estoura.
 - Estudar rate limit com `@nestjs/throttler`: `ThrottlerGuard` global limitando requisições por cliente (10 por segundo), respondendo `429`.
 - Estudar cache-aside com Redis (`@nestjs/cache-manager` + `@keyv/redis`): cache por página de uma listagem paginada por cursor e invalidação por versão da chave (módulo `products`).
+- Estudar coreografia de eventos entre módulos isolados (módulo `order`, checkout), com `@nestjs/event-emitter` (registrado desde o início em `app.module.ts`, mas só usado a partir daqui): `order` não importa `cart`/`products`/`budget` (nenhum `Module` nos `imports`, nenhuma classe de service importada) — só persiste o `Order`/`OrderItem` (Postgres via Prisma) e emite fatos (`order.created`, `order.confirm-requested`, `order.cancel-requested`, contrato em `src/modules/order/events`) com `EventEmitter2.emit()` (fire-and-forget, sem esperar quem for reagir). Por não consultar `cart`/`products` diretamente, o corpo do `checkout` já chega com o snapshot calculado no cliente (`total` + itens); `POST /order/checkout` responde `202 Accepted` na hora, e reagir a esses eventos (reservar saldo no `budget`, validar/decrementar estoque em `products`, limpar o carrinho) fica como exercício em aberto — o pedido para no status `PENDING` até isso existir.
 - Manter os seeders independentes do ORM (pasta `seeds/` na raiz), populando Postgres (`banks`, `posts`) e MongoDB (`products`) de forma idempotente.
 - Recuperar familiaridade com testes, configuração e execução de aplicações backend.
 
@@ -43,6 +44,7 @@ O código, as escolhas técnicas e a documentação refletem o estado atual do e
 - Autenticação de dois fatores (TOTP) com `otplib` e QR Code (`qrcode`), segredo criptografado em repouso (AES-256-GCM)
 - Circuit breaker e bulkhead com `opossum`
 - Rate limit com `@nestjs/throttler`
+- Eventos in-process com `@nestjs/event-emitter` (`EventEmitter2`) — coreografia entre `order` e o resto do sistema (módulo `order`)
 - Manipulação de datas com `date-fns` e `@date-fns/tz`
 - Swagger para documentação da API
 - Jest e Supertest
@@ -104,13 +106,23 @@ src/
 │   │   ├── products.service.ts
 │   │   ├── products.module.ts
 │   │   └── index.ts
-│   └── cart/
+│   ├── cart/
+│   │   ├── dto/
+│   │   ├── repository/   # interface + implementação Mongoose (Cart)
+│   │   ├── tests/
+│   │   ├── cart.controller.ts
+│   │   ├── cart.service.ts
+│   │   ├── cart.module.ts
+│   │   └── index.ts
+│   └── order/
 │       ├── dto/
-│       ├── repository/   # interface + implementação Mongoose (Cart)
+│       ├── events/   # contrato publicado (nome + payload) de order.created/confirm-requested/cancel-requested
+│       ├── repository/   # interface + implementação Prisma (Order + OrderItem)
 │       ├── tests/
-│       ├── cart.controller.ts
-│       ├── cart.service.ts
-│       └── cart.module.ts
+│       ├── order.controller.ts
+│       ├── order.service.ts   # só persiste o Order e emite eventos (EventEmitter2.emit, fire-and-forget)
+│       ├── order.module.ts    # não importa CartModule/ProductModule/BudgetModule
+│       └── index.ts
 ├── database/
 │   ├── index.ts   # barrel: reexporta Postgres (Prisma) e MongoDB (Mongoose)
 │   ├── mongodb/
@@ -122,11 +134,15 @@ src/
 │       ├── prisma.service.ts
 │       └── index.ts
 ├── shared/
+│   ├── index.ts   # barrel único: reexporta decorators, utils, interceptors, filters e redis (alias @shared)
 │   ├── decorators/
 │   │   ├── bulkhead.decorator.ts   # @UseBulkhead (opossum, limite de concorrência)
 │   │   ├── circuit-braker.decorator.ts   # @UseCircuitBrake (opossum)
 │   │   ├── is-tax-id.decorator.ts
 │   │   ├── user.decorator.ts
+│   │   └── index.ts
+│   ├── interceptors/
+│   │   ├── idempotency.interceptor.ts   # lock de idempotência via Redis (usado por budget e order)
 │   │   └── index.ts
 │   ├── filters/
 │   │   └── http-exception.filter.ts   # filtro global de exceções (loga erro 500 inesperado)
@@ -158,7 +174,8 @@ prisma/
 │   ├── ledger.prisma
 │   ├── balance.prisma
 │   ├── session.prisma
-│   └── posts.prisma   # coluna Unsupported("tsvector") + índice GIN pro full-text search
+│   ├── posts.prisma   # coluna Unsupported("tsvector") + índice GIN pro full-text search
+│   └── order.prisma   # Order + OrderItem, consumidos pelo módulo `order`
 └── migrations/
 
 seeds/   # independente do Prisma
@@ -185,7 +202,7 @@ docker-compose.yml
 dockerfile
 ```
 
-Cada módulo de domínio expõe só o que os outros precisam através do `index.ts` (barrel). Imports entre módulos usam aliases (`@auth`, `@banks`, `@clock`, `@database`, `@shared/decorators`, `@shared/utils`, `@prisma`) — a lista fica só em `tsconfig.json` (`baseUrl` + `paths`); tanto `jest.config.ts` (via `pathsToModuleNameMapper` do `ts-jest`) quanto `src/register-paths.ts` (resolução em runtime pro build compilado, via `tsconfig-paths`) leem esse mesmo arquivo em vez de duplicar a lista.
+Cada módulo de domínio expõe só o que os outros precisam através do `index.ts` (barrel). Imports entre módulos usam aliases (`@auth`, `@banks`, `@clock`, `@database`, `@shared`, `@prisma`) — a lista fica só em `tsconfig.json` (`baseUrl` + `paths`); tanto `jest.config.ts` (via `pathsToModuleNameMapper` do `ts-jest`) quanto `src/register-paths.ts` (resolução em runtime pro build compilado, via `tsconfig-paths`) leem esse mesmo arquivo em vez de duplicar a lista. `@shared` é um alias único pra `src/shared/index.ts` (era `@shared/decorators` + `@shared/utils` separados; consolidado num barrel só pra não crescer um alias novo por pasta de `shared/`). O módulo `order` foge desse padrão de propósito: não expõe nem consome service de outro módulo, só o contrato de eventos (`src/modules/order/events`, ver seção de rotas de pedido) — isolamento real, não só organização de import.
 
 ## Pré-requisitos
 
@@ -396,6 +413,27 @@ As rotas de carrinho usam o prefixo `/api/v1/cart` e exigem `accessToken` (Beare
 | `POST`   | `/cart`       | Bearer `accessToken` | Adiciona item ao carrinho (cria o carrinho se não existir)                                                    |
 | `DELETE` | `/cart`       | Bearer `accessToken` | Subtrai quantidade de um item; remove o item se a quantidade chegar a zero ou menos                           |
 | `GET`    | `/cart/clear` | Bearer `accessToken` | Esvazia o carrinho do usuário                                                                                 |
+
+As rotas de pedido usam o prefixo `/api/v1/order` e exigem `accessToken` (Bearer). O módulo `order` é isolado de propósito: não importa `CartModule`, `ProductModule` nem `BudgetModule` (nem o `Module` no `imports`, nem a classe de nenhum service) — só conhece a própria persistência (`Order`/`OrderItem`, Postgres via Prisma) e um contrato de eventos publicado em `src/modules/order/events/order.events.ts`. A comunicação com o resto do sistema é só por evento, via `EventEmitter2` (`@nestjs/event-emitter`, registrado em `app.module.ts` desde o início do projeto mas usado pela primeira vez aqui).
+
+| Método | Rota                 | Autenticação         | Finalidade                                                                     |
+| ------ | -------------------- | --------------------- | --------------------------------------------------------------------------------- |
+| `GET`  | `/order`             | Bearer `accessToken` | Lista os pedidos do usuário autenticado, com os itens                         |
+| `GET`  | `/order/:id`         | Bearer `accessToken` | Busca um pedido do usuário autenticado pelo `id`                              |
+| `POST` | `/order/checkout`    | Bearer `accessToken` | Cria o pedido a partir do snapshot enviado pelo cliente (ver fluxo abaixo)     |
+| `POST` | `/order/:id/confirm` | Bearer `accessToken` | Anuncia intenção de confirmar um pedido `RESERVED` (ver observação abaixo)     |
+| `POST` | `/order/:id/cancel`  | Bearer `accessToken` | Anuncia intenção de cancelar um pedido `RESERVED` (ver observação abaixo)      |
+
+**`POST /order/checkout`** — coreografia, não orquestração: `order` não consulta `cart` nem `products` pra montar o pedido (isso reintroduziria acoplamento direto). Em vez disso:
+
+- O `transactionId` (UUIDv7 gerado no frontend) vai no **header** `x-transaction-id`, não no corpo — é a chave de idempotência (`IdempotencyInterceptor`, lock via Redis) e também o que vai correlacionar esse pedido com a reserva no `budget`, quando essa parte existir.
+- O corpo (`CheckoutRequestDto`) traz o snapshot já calculado por quem chama: `total` (centavos) e `items` (`productId`, `name`, `quantity`, `price` — snapshot do carrinho/catálogo no momento do checkout).
+- `OrderService.checkout` só faz duas coisas: persiste o `Order` (status `PENDING`) com os `OrderItem`, e emite `order.created` (`EventEmitter2.emit()`, fire-and-forget — não espera ninguém reagir) com `{ orderId, userId, transactionId, total, items }`.
+- A rota responde `202 Accepted` com o pedido recém-criado (ainda `PENDING`) — não há resposta síncrona de "deu certo"/"saldo insuficiente", porque isso depende de quem reagir ao evento.
+
+**`POST /order/:id/confirm` e `POST /order/:id/cancel`** exigem que o pedido pertença ao usuário autenticado e esteja `RESERVED` (senão respondem `400`), e emitem `order.confirm-requested`/`order.cancel-requested` (mesmo estilo fire-and-forget) — mas devolvem o pedido **sem mudar o status**, já que quem efetivamente confirma/cancela a reserva no `budget` ainda não existe.
+
+**Estado atual, de propósito**: `cart`, `products` e `budget` ainda não escutam nenhum desses eventos. Isso significa que, hoje, todo pedido fica parado em `PENDING` pra sempre, o carrinho não é esvaziado, e nenhum saldo é reservado — é o próximo passo do estudo (ver [Próximos passos](#próximos-passos)). O contrato de cada evento (nome + payload) fica em `src/modules/order/events/order.events.ts`; um listener em outro módulo importa só esses tipos (import de tipo, sem trazer o `OrderModule` pro grafo de DI) e reage com `@OnEvent(OrderEvents.CREATED)`.
 
 A documentação interativa (Swagger) fica disponível em `/docs` com a aplicação em execução.
 
@@ -620,6 +658,7 @@ Cobertura por módulo:
 
 - `auth`, `banks` e `clock`: testes unitários de controllers, services, guards e strategies.
 - `budget`: `budget.service` (facade), `balance.service` e `ledger.service` cobertos; controller e `IdempotencyInterceptor` sem testes.
+- `order`: `order.service` coberto (checkout, confirm, cancel, propagação de erro do repositório); controller e `PrismaOrderRepository` sem testes.
 - `shared/decorators`: spec do `is-tax-id` em `tests/`.
 - `cart`, `posts` e `products`: pastas `tests/` vazias.
 - End-to-end: só o módulo `banks` (`banks.e2e-spec.ts`).
@@ -641,6 +680,11 @@ Todos os `it` estão em inglês; nomes de `describe` e mensagens de negócio (ex
 - Adicionar um detector de anomalias comportamentais anti-fraude.
 - Adicionar um conciliador de saldos (real-time) que dispara um alert para o backoffice em caso de discrepância.
 - Adicionar testes pros módulos `cart`, `posts` e `products` (controller, service, repository) — hoje sem cobertura nenhuma.
+- Adicionar testes de `order.controller` e `PrismaOrderRepository`.
+- Implementar os listeners que fecham a coreografia do checkout: `@OnEvent(OrderEvents.CREATED)` em `budget` (reservar saldo, usando `orderId` como correlação com `Ledger`/`Balance`) e em `products` (validar/decrementar estoque), e algo em `cart` que reaja ao resultado (esvaziar o carrinho quando a reserva der certo). Hoje nada escuta `order.created`/`order.confirm-requested`/`order.cancel-requested` — pedido fica parado em `PENDING` pra sempre.
+- Sem um passo que devolva o resultado, o pedido nunca sai de `PENDING`: falta decidir como isso volta pro `order` (ele quem grava `RESERVED`/`CONFIRMED`/`CANCELLED`/`FAILED`, ninguém mais escreve na tabela `orders`) — provavelmente um evento de volta tipo `budget.reserved`/`budget.reserve-failed`, com `order` escutando.
+- Com `emit()` fire-and-forget, se um listener lançar uma exceção dentro do handler, ela vira um unhandled rejection — não existe hoje tratamento de erro/retry pra reação a evento (nem um dead-letter, nem log estruturado). Vale estudar isso junto da implementação dos listeners.
+- Avaliar SSE (`GET /order/:id/stream`, no mesmo estilo do `/budget/balance/stream`) pro cliente saber quando o pedido sai de `PENDING`, já que o `202` do checkout não devolve o resultado final.
 - Adicionar testes do cache de `ProductsService.find` (hit, miss e invalidação por versão), mockando `CACHE_MANAGER`.
 - Adicionar testes pros decorators `@UseCircuitBrake` e `@UseBulkhead` e pro rate limit (`ThrottlerGuard`).
 - Mover os contadores do rate limit pra um storage compartilhado (Redis) e limitar de forma mais rígida as rotas sensíveis (login, 2FA) com `@Throttle`.

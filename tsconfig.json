@@ -18,8 +18,7 @@
             "@banks": ["modules/banks/index"],
             "@clock": ["modules/clock/index"],
             "@database": ["database/index"],
-            "@shared/decorators": ["shared/decorators/index"],
-            "@shared/utils": ["shared/utils/index"],
+            "@shared": ["shared/index"],
             "@prisma": ["../generated/prisma/client"]
         },
         "incremental": true,

@@ -17,8 +17,7 @@ import { TwoFactorAuthSyncResponse } from './dto/two-factor-auth-sync-response.d
 import { TwoFactorAuthResponse } from './dto/two-factor-auth-response.dto';
 import { PrismaService } from '@database';
 
-import { expTimeToDabase } from '@shared/utils';
-import { decrypt, encrypt } from '@shared/utils';
+import { expTimeToDabase, decrypt, encrypt } from '@shared';
 @Injectable()
 export class AuthService {
     private readonly otp: OTP;
