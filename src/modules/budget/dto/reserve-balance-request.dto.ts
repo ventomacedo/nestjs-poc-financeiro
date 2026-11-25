@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsNumber, Min } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsPositive, Min } from 'class-validator';
 
 export class ReserveBalanceRequestDto {
     @ApiProperty({
@@ -15,6 +15,7 @@ export class ReserveBalanceRequestDto {
         description:
             'Valor inteiro, já que reservamos os dois últimos dígitos para os centavos',
     })
+    @IsPositive({ message: 'amount deve ser um número positivo' })
     @IsNotEmpty({ message: 'amount é obrigatório' })
     @IsNumber({}, { message: 'amount deve ser um número válido' })
     @Min(0, { message: 'amount não pode ser menor que zero' })

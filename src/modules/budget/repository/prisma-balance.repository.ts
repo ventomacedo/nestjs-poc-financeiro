@@ -5,6 +5,7 @@ import {
     ConflictException,
     Injectable,
     NotFoundException,
+    UnprocessableEntityException,
 } from '@nestjs/common';
 import { ReserveBalanceRequestDto } from '../dto/reserve-balance-request.dto';
 import { CancelReserveRequestDto } from '../dto/cancel-reserve-request.dto';
@@ -34,6 +35,11 @@ export class PrismaBalanceRepository implements IBalanceRepositoryInterface {
 
                 if (!balance?.userId)
                     throw new NotFoundException('Saldo não encontrado.');
+
+                if (balance.available < amount)
+                    throw new UnprocessableEntityException(
+                        'Saldo insuficiente.',
+                    );
 
                 const result = await tx.balance.update({
                     where: { userId, version },
@@ -84,7 +90,11 @@ export class PrismaBalanceRepository implements IBalanceRepositoryInterface {
                     throw new NotFoundException('Saldo não encontrado.');
 
                 const ledger = await tx.ledger.findFirst({
-                    where: { reserveId: transactionId, type: 'RESERVED' },
+                    where: {
+                        userId,
+                        reservedId: transactionId,
+                        type: { in: ['REFUNDED', 'WITHDRAW'] },
+                    },
                 });
 
                 if (!ledger?.userId)
@@ -92,7 +102,7 @@ export class PrismaBalanceRepository implements IBalanceRepositoryInterface {
                         'Evento financeiro não encontrado.',
                     );
 
-                const result = await tx.balance.update({
+                const { count } = await tx.balance.updateMany({
                     where: { userId, version },
                     data: {
                         available: balance.available + ledger.amount,
@@ -101,7 +111,16 @@ export class PrismaBalanceRepository implements IBalanceRepositoryInterface {
                     },
                 });
 
-                if (!result.userId)
+                if (count === 0)
+                    throw new ConflictException(
+                        'Versão desatualizada ou saldo insuficiente.',
+                    );
+
+                const result = await tx.balance.findUnique({
+                    where: { userId },
+                });
+
+                if (!result?.userId)
                     throw new ConflictException('Conflito de idempotência.');
 
                 if (!!result.userId)
@@ -138,7 +157,11 @@ export class PrismaBalanceRepository implements IBalanceRepositoryInterface {
                     throw new NotFoundException('Saldo não encontrado.');
 
                 const ledger = await tx.ledger.findFirst({
-                    where: { orderId, type: 'RESERVED' },
+                    where: {
+                        userId,
+                        reservedId: orderId,
+                        type: { in: ['REFUNDED', 'WITHDRAW'] },
+                    },
                 });
 
                 if (!ledger?.userId)

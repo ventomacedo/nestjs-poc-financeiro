@@ -17,6 +17,12 @@ import {
     throwError,
 } from 'rxjs';
 import { RedisService } from '../redis/redis.service';
+
+type TRedisData = {
+    status: string;
+    body: any;
+};
+
 @Injectable()
 export class IdempotencyInterceptor implements NestInterceptor {
     private readonly logger = new Logger(IdempotencyInterceptor.name);
@@ -25,15 +31,15 @@ export class IdempotencyInterceptor implements NestInterceptor {
 
     public async intercept(contex: ExecutionContext, next: CallHandler) {
         const request = contex.switchToHttp().getRequest();
-        const type = request.url.split('/').at(-1);
+        const type = request.route.path.split('/').at(-1);
         const transactionId =
             request.headers['x-transaction-id'] ?? request.body?.transactionId;
 
         if (!transactionId)
             throw new BadRequestException('transactionId é obrigatório');
 
-        const redisKey = `idemp:${type}@${transactionId}`;
-        const lockAcquired = await this.redis.set(redisKey, 'PROCESSING', 30);
+        const redisKey = `idemp:${request.user.userId}${type}@${transactionId}`;
+        const lockAcquired = await this.redis.set(redisKey, 'PROCESSING', 60);
 
         if (!lockAcquired)
             throw new ConflictException(
@@ -43,9 +49,22 @@ export class IdempotencyInterceptor implements NestInterceptor {
         return next.handle().pipe(
             concatMap((data) =>
                 from(
-                    this.redis.upsert(redisKey, 'DONE', 60 * 60 * 24 * 30),
+                    this.redis.upsert(
+                        redisKey,
+                        JSON.stringify({ status: 'DONE', body: data }),
+                        60 * 60 * 24 * 30,
+                    ),
                 ).pipe(
-                    catchError((error) => {
+                    catchError(async (error) => {
+                        const redisData =
+                            ((await this.redis.get(redisKey)) as string) ?? '';
+                        const redisParsed = JSON.parse(
+                            redisData,
+                        ) as TRedisData | null;
+
+                        if (redisParsed?.status === 'DONE') {
+                            return of(redisParsed.body);
+                        }
                         this.logger.error(
                             `Falha ao marcar ${redisKey} como DONE`,
                             error,
